@@ -33,6 +33,7 @@
       touch-action: manipulation;
     }
     button.choice:active { transform: scale(0.98); }
+    button.choice:disabled { opacity: 0.55; cursor: not-allowed; }
     button.choice img { width: 56px; height: 56px; border-radius: 12px; border:1px solid #222; display:block; margin: 0 auto; }
     button.choice .nm { font-size: 11px; color:#d8d8d8; margin-top: 8px; line-height: 1.2; text-align:center; }
     .bar { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
@@ -42,6 +43,7 @@
       cursor:pointer; touch-action: manipulation;
       font-weight: 800;
     }
+    button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
     .result { margin-top: 10px; font-weight: 900; }
     .ok { color:#59d36b; }
     .bad { color:#ff5c5c; }
@@ -50,7 +52,6 @@
     footer { padding: var(--pad); color:#9a9a9a; font-size: 11px; line-height: 1.35; }
     .itemsRow { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     .mini { width: 44px; height: 44px; border-radius: 12px; border:1px solid #222; background:#000; object-fit:cover; }
-    code { background:#1a1a1a; padding: 2px 6px; border-radius: 8px; }
   </style>
 </head>
 <body>
@@ -108,7 +109,6 @@
 
 <script>
 (async function () {
-  // --- PWA cache ---
   if ("serviceWorker" in navigator) {
     try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
   }
@@ -117,16 +117,15 @@
   const patchMeta = el("patchMeta");
   const scoreEl = el("score");
   const streakEl = el("streak");
+  const newBtn = el("newBtn");
 
   let SCORE = 0;
   let STREAK = 0;
 
-  // --- Load patch ---
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
   const patch = versions[0];
   patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json`;
 
-  // --- Load DDragon champ + item data ---
   const champJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/champion.json`).then(r => r.json());
   const champs = Object.values(champJson.data).map(c => ({
     id: c.id, name: c.name,
@@ -143,10 +142,8 @@
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
-  // --- Load LoG dataset ---
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
-  // --- Utilities ---
   const LANES = ["top","jungle","middle","adc","support"];
   const PHASES = ["start","mid","late"];
   const RANKS = ["silver","gold"];
@@ -161,7 +158,6 @@
     return a;
   };
 
-  // --- Normalization for mapping LoG item names -> Riot item IDs ---
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -170,52 +166,38 @@
       .replace(/[^a-z0-9]+/g, "")
       .trim();
 
-  // Build map: normalized item name -> Riot item object
   const itemByNormName = new Map();
-  for (const it of items) {
-    itemByNormName.set(normalizeName(it.name), it);
-  }
+  for (const it of items) itemByNormName.set(normalizeName(it.name), it);
 
-  // Common aliases / mismatches (add more as needed)
   const NAME_ALIASES = new Map([
-    // Example alias patterns – keep minimal; add when you see misses in console.
     [normalizeName("Executioner's Calling"), normalizeName("Executioners Calling")],
-    [normalizeName("Mortal Reminder"), normalizeName("MortalReminder")],
     [normalizeName("Lord Dominik's Regards"), normalizeName("Lord Dominiks Regards")],
-    [normalizeName("Zhonya's Hourglass"), normalizeName("Zhonyas Hourglass")],
-    [normalizeName("Bramble Vest"), normalizeName("BrambleVest")],
+    [normalizeName("Zhonya's Hourglass"), normalizeName("Zhonyas Hourglass")]
   ]);
 
   function getRiotItemByLoGName(logName) {
     const n = normalizeName(logName);
     if (itemByNormName.has(n)) return itemByNormName.get(n);
 
-    // try alias redirection
     for (const [a, b] of NAME_ALIASES.entries()) {
       if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
       if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
     }
 
-    // fallback: try contains heuristic (last resort)
-    // (avoid being too clever; can create wrong matches)
     for (const [k, v] of itemByNormName.entries()) {
       if (k.includes(n) || n.includes(k)) return v;
     }
     return null;
   }
 
-  // Filter out junk / consumables / wards when selecting "enemy key item"
-  const EXCLUDE_ITEM_IDS = new Set([
-    2003, 2031, 2033, 2032, // potions
-    3340, 3364, 3363,       // wards / oracle
-    2055,                   // control ward
-    2138, 2139, 2140,       // elixirs (old)
-    2420, 2422, 2424,       // biscuits etc (varies)
-  ]);
+  const EXCLUDE_ITEM_IDS = new Set([2003,2031,2033,2032,3340,3364,3363,2055]);
+
+  function fallbackAnyItem() {
+    const pool = items.filter(i => i.gold > 0);
+    return rand(pool).id;
+  }
 
   function pickKeyEnemyItemIdFromRow(row) {
-    // row.items is LoG list {name, src}
-    // pick first mapped Riot item that is purchaseable and not excluded
     for (const x of (row?.items || [])) {
       const it = getRiotItemByLoGName(x?.name);
       if (!it) continue;
@@ -223,60 +205,45 @@
       if (EXCLUDE_ITEM_IDS.has(it.id)) continue;
       return it.id;
     }
-    // fallback: any purchaseable
     return fallbackAnyItem();
   }
 
-  function fallbackAnyItem() {
-    const pool = items.filter(i => i.gold > 0);
-    return rand(pool).id;
-  }
-
   function findChampBySlug(slug) {
-    // LoG slug nemusí odpovídat přesně DDragon id (dr-mundo vs DrMundo).
     const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g,"");
     const target = norm(slug);
     return champs.find(c => norm(c.id) === target) || rand(champs);
   }
 
-  // --- Counter rules (mechanické, deterministické) ---
-  // Vrací { itemId, reason, category }
   function counterFor(enemyChampId, enemyLane, enemyItemId) {
     const enemyItem = itemById.get(enemyItemId);
     const enemyTags = new Set(enemyItem?.tags ?? []);
 
-    // Whitelisty pro MVP (rozšiřuj postupně)
     const SUSTAIN_CHAMPS = new Set(["Aatrox","Vladimir","Soraka","Swain","Warwick","DrMundo","Mundo","Briar","Olaf"]);
     const SHIELD_CHAMPS = new Set(["Lulu","Janna","Karma","Shen","Sion","Lux","Seraphine"]);
     const TANK_CHAMPS = new Set(["Malphite","Ornn","Rammus","Sion","Leona","Nautilus","Sejuani","Zac","Ksante"]);
 
-    // antiheal
     if (SUSTAIN_CHAMPS.has(enemyChampId)) {
-      const id = itemById.has(3123) ? 3123 : fallbackAnyItem(); // Executioner's Calling (někdy se mění)
-      return { itemId: id, category: "antiheal", reason: "Sustain/heal → antiheal." };
+      const id = itemById.has(3123) ? 3123 : fallbackAnyItem();
+      return { itemId: id, reason: "Sustain/heal → antiheal." };
     }
 
-    // antishield
     if (SHIELD_CHAMPS.has(enemyChampId)) {
-      const id = itemById.has(6695) ? 6695 : fallbackAnyItem(); // Serpent's Fang
-      return { itemId: id, category: "antishield", reason: "Shields → antishield." };
+      const id = itemById.has(6695) ? 6695 : fallbackAnyItem();
+      return { itemId: id, reason: "Shields → antishield." };
     }
 
-    // tank → armor pen
     if (TANK_CHAMPS.has(enemyChampId)) {
-      const id = itemById.has(3036) ? 3036 : fallbackAnyItem(); // LDR
-      return { itemId: id, category: "armorpen", reason: "Tank → armor pen." };
+      const id = itemById.has(3036) ? 3036 : fallbackAnyItem();
+      return { itemId: id, reason: "Tank → armor pen." };
     }
 
-    // defensive tags → armor pen
     if (enemyTags.has("Armor") || enemyTags.has("Health")) {
       const id = itemById.has(3036) ? 3036 : fallbackAnyItem();
-      return { itemId: id, category: "armorpen", reason: "Defenzivní item → armor pen." };
+      return { itemId: id, reason: "Defenzivní item → armor pen." };
     }
 
-    // default: stasis/outplay
-    const id = itemById.has(3157) ? 3157 : fallbackAnyItem(); // Zhonya
-    return { itemId: id, category: "default", reason: "Fallback counter." };
+    const id = itemById.has(3157) ? 3157 : fallbackAnyItem();
+    return { itemId: id, reason: "Fallback counter." };
   }
 
   function pickWrongChoices(correctId) {
@@ -315,7 +282,6 @@
     return { slug, lane, rank, phase, bestRow: best };
   }
 
-  // --- Render helpers ---
   function setChamp(side, champ, extra) {
     el(`${side}Icon`).src = champ.icon;
     el(`${side}Icon`).alt = champ.name;
@@ -326,7 +292,6 @@
   function renderEnemyBuildRowIcons(row) {
     const wrap = el("enemyBuildIcons");
     wrap.innerHTML = "";
-
     const list = (row?.items || []).slice(0, 6);
     for (const x of list) {
       const riot = getRiotItemByLoGName(x?.name);
@@ -339,21 +304,18 @@
     }
   }
 
-  // --- Game state ---
   let state = { correctId: null, correctName: "", reason: "" };
 
   async function newRound() {
+    newBtn.disabled = true;
     el("result").textContent = "";
     el("result").className = "result";
     el("reason").textContent = "";
     const choicesEl = el("choices");
     choicesEl.innerHTML = "";
 
-    // enemy pick from LoG
     const enemyPick = pickEnemyFromLog();
     const enemyChamp = findChampBySlug(enemyPick.slug);
-
-    // player champ random
     const playerChamp = rand(champs);
 
     setChamp("enemy", enemyChamp, `Lane: ${enemyPick.lane} • Rank: ${enemyPick.rank} • Fáze: ${enemyPick.phase}`);
@@ -365,15 +327,12 @@
     const pickRate = row?.pickRate ?? null;
     const winRate = row?.winRate ?? null;
     el("enemyBuildInfo").textContent =
-      row
-        ? `Pick: ${pickRate ?? "—"}% • Win: ${winRate ?? "—"}%`
-        : `Chybí data pro ${enemyPick.slug}/${enemyPick.lane}/${enemyPick.rank}/${enemyPick.phase}`;
+      row ? `Pick: ${pickRate ?? "—"}% • Win: ${winRate ?? "—"}%` :
+            `Chybí data pro ${enemyPick.slug}/${enemyPick.lane}/${enemyPick.rank}/${enemyPick.phase}`;
 
-    // choose key enemy item (Riot ID) from LoG row items
     const enemyKeyItemId = row ? pickKeyEnemyItemIdFromRow(row) : fallbackAnyItem();
-
-    // compute correct counter item (Riot ID)
     const counter = counterFor(enemyChamp.id, enemyPick.lane, enemyKeyItemId);
+
     const correctId = itemById.has(counter.itemId) ? counter.itemId : fallbackAnyItem();
     const wrongIds = pickWrongChoices(correctId);
     const ids = shuffle([correctId, ...wrongIds]);
@@ -390,43 +349,40 @@
       btn.onclick = () => onPick(id);
       choicesEl.appendChild(btn);
     }
+
+    newBtn.disabled = false;
   }
 
   function onPick(id) {
-  // zablokuj další klikání
-  const btns = document.querySelectorAll("button.choice");
-  btns.forEach(b => b.disabled = true);
+    const btns = document.querySelectorAll("button.choice");
+    btns.forEach(b => b.disabled = true);
+    newBtn.disabled = true;
 
-  const ok = id === state.correctId;
+    const ok = id === state.correctId;
 
-  if (ok) {
-    SCORE += 1;
-    STREAK += 1;
-    el("result").textContent = "SPRÁVNĚ";
-    el("result").className = "result ok";
-  } else {
-    STREAK = 0;
-    el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
-    el("result").className = "result bad";
+    if (ok) {
+      SCORE += 1;
+      STREAK += 1;
+      el("result").textContent = "SPRÁVNĚ";
+      el("result").className = "result ok";
+    } else {
+      STREAK = 0;
+      el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
+      el("result").className = "result bad";
+    }
+
+    scoreEl.textContent = String(SCORE);
+    streakEl.textContent = String(STREAK);
+    el("reason").textContent = state.reason;
+
+    setTimeout(() => {
+      newRound();
+    }, 3000);
   }
 
-  scoreEl.textContent = String(SCORE);
-  streakEl.textContent = String(STREAK);
-
-  // vysvětlení
-  el("reason").textContent = state.reason;
-
-  // nechat 3 sekundy, pak nové kolo
-  setTimeout(() => {
-    newRound();
-  }, 3000);
-}
-
-  el("newBtn").addEventListener("click", newRound);
-
+  newBtn.addEventListener("click", newRound);
   await newRound();
 })();
 </script>
 </body>
 </html>
-
