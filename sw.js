@@ -1,9 +1,10 @@
-const CACHE = "lol-counter-quiz-v1";
+const CACHE = "lol-counter-quiz-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./data/builds.json"
+  "./sw.js",
+  "./data/log_builds.json"
 ];
 
 self.addEventListener("install", (event) => {
