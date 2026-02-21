@@ -1,4 +1,4 @@
-const CACHE = "lol-counter-quiz-v2";
+const CACHE = "lol-counter-quiz-v3";
 const ASSETS = [
   "./",
   "./index.html",
