@@ -393,23 +393,34 @@
   }
 
   function onPick(id) {
-    const ok = id === state.correctId;
-    if (ok) {
-      SCORE += 1;
-      STREAK += 1;
-      el("result").textContent = "SPRÁVNĚ";
-      el("result").className = "result ok";
-    } else {
-      STREAK = 0;
-      el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
-      el("result").className = "result bad";
-    }
-    scoreEl.textContent = String(SCORE);
-    streakEl.textContent = String(STREAK);
-    el("reason").textContent = state.reason;
+  // zablokuj další klikání
+  const btns = document.querySelectorAll("button.choice");
+  btns.forEach(b => b.disabled = true);
 
-    setTimeout(newRound, 900);
+  const ok = id === state.correctId;
+
+  if (ok) {
+    SCORE += 1;
+    STREAK += 1;
+    el("result").textContent = "SPRÁVNĚ";
+    el("result").className = "result ok";
+  } else {
+    STREAK = 0;
+    el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
+    el("result").className = "result bad";
   }
+
+  scoreEl.textContent = String(SCORE);
+  streakEl.textContent = String(STREAK);
+
+  // vysvětlení
+  el("reason").textContent = state.reason;
+
+  // nechat 3 sekundy, pak nové kolo
+  setTimeout(() => {
+    newRound();
+  }, 3000);
+}
 
   el("newBtn").addEventListener("click", newRound);
 
@@ -418,3 +429,4 @@
 </script>
 </body>
 </html>
+
