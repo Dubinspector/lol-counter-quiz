@@ -36,7 +36,6 @@
     button.choice:disabled { opacity: 0.55; cursor: not-allowed; }
     button.choice img { width: 56px; height: 56px; border-radius: 12px; border:1px solid #222; display:block; margin: 0 auto; }
     button.choice .nm { font-size: 11px; color:#d8d8d8; margin-top: 8px; line-height: 1.2; text-align:center; }
-
     .bar { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
     button.primary {
       border-radius: 14px; border:1px solid #2a2a2a;
@@ -45,7 +44,6 @@
       font-weight: 800;
     }
     button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
-
     .result { margin-top: 10px; font-weight: 900; }
     .ok { color:#59d36b; }
     .bad { color:#ff5c5c; }
@@ -169,6 +167,27 @@
     return a;
   };
 
+  // ---------- VALID POOL: jen kombinace, které existují ----------
+  const VALID_POOL = []; // {slug,lane,rank,phase}
+  for (const [slug, lanesObj] of Object.entries(logData.champions || {})) {
+    for (const [lane, ranksObj] of Object.entries(lanesObj || {})) {
+      for (const rank of RANKS) {
+        const node = ranksObj?.[rank];
+        if (!node) continue;
+        for (const phase of PHASES) {
+          const rows = node?.[phase];
+          if (Array.isArray(rows) && rows.length > 0) {
+            VALID_POOL.push({ slug, lane, rank, phase });
+          }
+        }
+      }
+    }
+  }
+  if (VALID_POOL.length === 0) {
+    throw new Error("VALID_POOL je prázdný. Dataset log_builds.json nemá žádné použitelné kombinace.");
+  }
+  // --------------------------------------------------------------
+
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -215,16 +234,11 @@
   }
 
   function pickEnemyFromLog() {
-    const slugs = Object.keys(logData.champions || {});
-    const slug = rand(slugs);
-    const lane = rand(LANES);
-    const rank = rand(RANKS);
-    const phase = rand(PHASES);
-
+    const pick = rand(VALID_POOL);
+    const { slug, lane, rank, phase } = pick;
     const node = logData.champions?.[slug]?.[lane]?.[rank];
     const rows = node?.[phase] || [];
     const best = rows[0] || null;
-
     return { slug, lane, rank, phase, bestRow: best };
   }
 
@@ -250,7 +264,6 @@
     }
   }
 
-  // Counter vyhodnocený nad CELÝM enemy build řádkem (ne jen tank => LDR).
   function counterForRow(enemyChampId, enemyLane, row) {
     const ids = [];
     for (const x of (row?.items || [])) {
@@ -264,32 +277,28 @@
     const names = ids.map(id => itemById.get(id)?.name || String(id)).join(", ");
     const buildText = (row?.items || []).map(x => (x?.name || "").toLowerCase()).join(" | ");
 
-    // 1) Shields
     const SHIELD_CHAMPS = new Set(["Lulu","Janna","Karma","Shen","Sion","Lux","Seraphine"]);
     if (SHIELD_CHAMPS.has(enemyChampId)) {
-      const id = itemById.has(6695) ? 6695 : fallbackAnyItem(); // Serpent's Fang
+      const id = itemById.has(6695) ? 6695 : fallbackAnyItem();
       return { itemId: id, reason: `Shields → antishield. (Enemy build: ${names})` };
     }
 
-    // 2) Sustain/Heal
     const SUSTAIN_CHAMPS = new Set(["Aatrox","Vladimir","Soraka","Swain","Warwick","DrMundo","Mundo","Briar","Olaf"]);
     if (SUSTAIN_CHAMPS.has(enemyChampId)) {
-      const id = itemById.has(3123) ? 3123 : fallbackAnyItem(); // Executioner's Calling (může se měnit)
+      const id = itemById.has(3123) ? 3123 : fallbackAnyItem();
       return { itemId: id, reason: `Sustain/heal → antiheal. (Enemy build: ${names})` };
     }
 
-    // 3) Crit signals (anti-crit / anti-AA)
     const critSignals = [
       "infinity edge","rapid firecannon","phantom dancer","statikk","navori",
       "the collector","collector","kraken slayer","bloodthirster","essence reaver"
     ];
     const looksCrit = critSignals.some(s => buildText.includes(s));
     if (looksCrit) {
-      const id = itemById.has(3143) ? 3143 : (itemById.has(3110) ? 3110 : fallbackAnyItem()); // Randuin or Frozen Heart
+      const id = itemById.has(3143) ? 3143 : (itemById.has(3110) ? 3110 : fallbackAnyItem());
       return { itemId: id, reason: `Crit/AA DPS → anti-crit/anti-AA. (Enemy build: ${names})` };
     }
 
-    // 4) Tank/armor-health stack → armor pen (až tady)
     let armorOrHealthCount = 0;
     for (const id of ids) {
       const it = itemById.get(id);
@@ -298,12 +307,11 @@
       if (tags.has("Armor") || tags.has("Health")) armorOrHealthCount++;
     }
     if (armorOrHealthCount >= 2) {
-      const id = itemById.has(3036) ? 3036 : fallbackAnyItem(); // LDR
+      const id = itemById.has(3036) ? 3036 : fallbackAnyItem();
       return { itemId: id, reason: `Více defenzivních itemů → armor pen. (Enemy build: ${names})` };
     }
 
-    // 5) Default
-    const id = itemById.has(3157) ? 3157 : fallbackAnyItem(); // Zhonya (fallback)
+    const id = itemById.has(3157) ? 3157 : fallbackAnyItem();
     return { itemId: id, reason: `Fallback. (Enemy build: ${names})` };
   }
 
@@ -357,13 +365,13 @@
     setChamp("player", playerChamp, `Náhodný champion`);
 
     const row = enemyPick.bestRow;
+    if (!row) return newRound(); // dataset je divný, reroll
+
     renderEnemyBuildRowIcons(row);
 
-    const pickRate = row?.pickRate ?? null;
-    const winRate = row?.winRate ?? null;
-    el("enemyBuildInfo").textContent =
-      row ? `Pick: ${pickRate ?? "—"}% • Win: ${winRate ?? "—"}%`
-          : `Chybí data pro ${enemyPick.slug}/${enemyPick.lane}/${enemyPick.rank}/${enemyPick.phase}`;
+    const pickRate = row.pickRate ?? null;
+    const winRate = row.winRate ?? null;
+    el("enemyBuildInfo").textContent = `Pick: ${pickRate ?? "—"}% • Win: ${winRate ?? "—"}%`;
 
     const counter = counterForRow(enemyChamp.id, enemyPick.lane, row);
     const correctId = itemById.has(counter.itemId) ? counter.itemId : fallbackAnyItem();
