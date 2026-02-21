@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>LoL Counter Item Quiz</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#111111">
+  <style>
+    :root { --pad: 14px; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0b0b0b; color:#f1f1f1; }
+    header { padding: var(--pad); border-bottom: 1px solid #222; display:flex; gap:10px; align-items:center; justify-content:space-between; }
+    header h1 { font-size: 16px; margin: 0; font-weight: 800; }
+    header .meta { font-size: 12px; color:#bdbdbd; }
+    main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+    .card { background:#111; border:1px solid #222; border-radius: 16px; padding: 14px; }
+    .row { display:flex; gap: 12px; align-items:center; }
+    .avatar { width: 68px; height: 68px; border-radius: 14px; border:1px solid #222; background:#000; object-fit:cover; }
+    .label { font-size: 12px; color:#bdbdbd; }
+    .title { font-size: 18px; font-weight: 900; margin-top:2px; }
+    .sub { font-size: 12px; color:#bdbdbd; margin-top:2px; }
+    .choices { display:flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    button.choice {
+      min-width: 92px; min-height: 92px;
+      border-radius: 16px;
+      border:1px solid #2a2a2a;
+      background:#0f0f0f;
+      color:#fff;
+      padding: 10px;
+      cursor:pointer;
+      touch-action: manipulation;
+    }
+    button.choice:active { transform: scale(0.98); }
+    button.choice img { width: 56px; height: 56px; border-radius: 12px; border:1px solid #222; display:block; margin: 0 auto; }
+    button.choice .nm { font-size: 11px; color:#d8d8d8; margin-top: 8px; line-height: 1.2; text-align:center; }
+    .bar { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+    button.primary {
+      border-radius: 14px; border:1px solid #2a2a2a;
+      background:#151515; color:#fff; padding: 12px 14px;
+      cursor:pointer; touch-action: manipulation;
+      font-weight: 800;
+    }
+    .result { margin-top: 10px; font-weight: 900; }
+    .ok { color:#59d36b; }
+    .bad { color:#ff5c5c; }
+    .small { font-size: 12px; color:#bdbdbd; }
+    .pill { padding: 6px 10px; border:1px solid #2a2a2a; border-radius: 999px; background:#121212; font-size: 12px; color:#d6d6d6; }
+    footer { padding: var(--pad); color:#9a9a9a; font-size: 11px; line-height: 1.35; }
+    code { background:#1a1a1a; padding: 2px 6px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>LoL Counter Item Quiz</h1>
+    <div class="meta" id="patchMeta">Načítám data…</div>
+  </div>
+  <div class="bar">
+    <span class="pill">Skóre: <span id="score">0</span></span>
+    <span class="pill">Streak: <span id="streak">0</span></span>
+    <button class="primary" id="newBtn">Nové kolo</button>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card">
+      <div class="label">Oponent</div>
+      <div class="row" style="margin-top:10px;">
+        <img class="avatar" id="enemyIcon" alt="">
+        <div>
+          <div class="title" id="enemyName">—</div>
+          <div class="sub" id="enemyInfo">—</div>
+        </div>
+      </div>
+
+      <div class="label" style="margin-top:14px;">Jeho item (fáze hry)</div>
+      <div class="row" style="margin-top:10px;">
+        <img class="avatar" id="enemyItemIcon" alt="">
+        <div>
+          <div class="title" id="enemyItemName">—</div>
+          <div class="sub" id="enemyItemInfo">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Ty</div>
+      <div class="row" style="margin-top:10px;">
+        <img class="avatar" id="playerIcon" alt="">
+        <div>
+          <div class="title" id="playerName">—</div>
+          <div class="sub" id="playerInfo">—</div>
+        </div>
+      </div>
+
+      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3)</div>
+      <div class="choices" id="choices"></div>
+
+      <div class="result" id="result"></div>
+      <div class="small" id="reason"></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Tento projekt je fan-made. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon.
+</footer>
+
+<script>
+(async function () {
+  // --- PWA cache ---
+  if ("serviceWorker" in navigator) {
+    try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
+  }
+
+  const el = (id) => document.getElementById(id);
+  const patchMeta = el("patchMeta");
+  const scoreEl = el("score");
+  const streakEl = el("streak");
+
+  let SCORE = 0;
+  let STREAK = 0;
+
+  // --- Load patch ---
+  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
+  const patch = versions[0];
+  patchMeta.textContent = `Patch: ${patch}`;
+
+  // --- Load DDragon champ + item data ---
+  const champJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/champion.json`).then(r => r.json());
+  const champs = Object.values(champJson.data).map(c => ({
+    id: c.id, name: c.name,
+    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
+  }));
+
+  const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
+  const items = Object.entries(itemJson.data).map(([id, it]) => ({
+    id: Number(id),
+    name: it.name,
+    gold: it.gold?.total ?? 0,
+    tags: it.tags ?? [],
+    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`
+  }));
+  const itemById = new Map(items.map(i => [i.id, i]));
+
+  // --- Load your builds dataset ---
+  const builds = await fetch("./data/builds.json").then(r => r.json());
+
+  // --- Utilities ---
+  const LANES = ["top","jungle","middle","adc","support"];
+  const PHASES = ["start","mid","late"];
+  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const shuffle = (arr) => {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  // --- Counter rules (mechanické, deterministické) ---
+  // Vrací { itemId, reason, category }
+  function counterFor(enemyChampId, enemyLane, enemyItemId) {
+    const enemyItem = itemById.get(enemyItemId);
+    const enemyTags = new Set(enemyItem?.tags ?? []);
+
+    // jednoduché whitelisty pro start
+    const SUSTAIN_CHAMPS = new Set(["Aatrox","Vladimir","Soraka","Swain","Warwick","DrMundo","Mundo","Briar","Olaf"]);
+    const SHIELD_CHAMPS = new Set(["Lulu","Janna","Karma","Shen","Sion","Lux","Seraphine"]);
+    const TANK_CHAMPS = new Set(["Malphite","Ornn","Rammus","Sion","Leona","Nautilus","Sejuani","Zac"]);
+
+    // antiheal
+    if (SUSTAIN_CHAMPS.has(enemyChampId)) {
+      const id = itemById.has(3123) ? 3123 : fallbackAnyItem();
+      return { itemId: id, category: "antiheal", reason: "Sustain/heal champ → antiheal." };
+    }
+
+    // antishield
+    if (SHIELD_CHAMPS.has(enemyChampId)) {
+      const id = itemById.has(6695) ? 6695 : fallbackAnyItem();
+      return { itemId: id, category: "antishield", reason: "Shield champ → Serpent’s Fang." };
+    }
+
+    // tank → armor pen
+    if (TANK_CHAMPS.has(enemyChampId)) {
+      const id = itemById.has(3036) ? 3036 : fallbackAnyItem();
+      return { itemId: id, category: "armorpen", reason: "Tank → armor pen." };
+    }
+
+    // pokud enemy item má tag "Armor" nebo "Health" (někdy)
+    if (enemyTags.has("Armor") || enemyTags.has("Health")) {
+      const id = itemById.has(3036) ? 3036 : fallbackAnyItem();
+      return { itemId: id, category: "armorpen", reason: "Defenzivní item → armor pen." };
+    }
+
+    // default: stopwatch/zhonya jako univerzální “outplay”
+    const id = itemById.has(3157) ? 3157 : fallbackAnyItem();
+    return { itemId: id, category: "default", reason: "Fallback counter." };
+  }
+
+  function fallbackAnyItem() {
+    // vyber první rozumný purchaseable item
+    const pool = items.filter(i => i.gold > 0);
+    return rand(pool).id;
+  }
+
+  function pickWrongChoices(correctId, category) {
+    const correct = itemById.get(correctId);
+    const poolAll = items.filter(i => i.gold > 0 && i.id !== correctId);
+
+    // “plausible” = podobná cena + podobné tagy
+    const correctTags = new Set(correct?.tags ?? []);
+    const scored = poolAll.map(i => {
+      const price = Math.abs((i.gold||0) - (correct?.gold||0));
+      let tagOverlap = 0;
+      for (const t of i.tags ?? []) if (correctTags.has(t)) tagOverlap++;
+      const score = price - tagOverlap * 150;
+      return { i, score };
+    }).sort((a,b)=>a.score-b.score).slice(0, 120).map(x=>x.i);
+
+    const out = [];
+    while (out.length < 2 && scored.length) {
+      const pick = rand(scored);
+      if (!out.includes(pick.id) && pick.id !== correctId) out.push(pick.id);
+    }
+
+    // fallback kdyby náhodou
+    while (out.length < 2) out.push(fallbackAnyItem());
+    return out;
+  }
+
+  function champExistsInBuilds(champId) {
+    const slug = champId.toLowerCase();
+    return !!builds[slug];
+  }
+
+  function pickEnemyFromBuilds() {
+    const slugs = Object.keys(builds);
+    const slug = rand(slugs);
+    const lanes = Object.keys(builds[slug] || {}).filter(x => LANES.includes(x));
+    const lane = lanes.length ? rand(lanes) : rand(LANES);
+    const phases = Object.keys(builds[slug][lane] || {}).filter(x => PHASES.includes(x));
+    const phase = phases.length ? rand(phases) : "mid";
+
+    const phaseItems = (builds[slug][lane]?.[phase] || []).filter(id => itemById.has(id));
+    const itemId = phaseItems.length ? rand(phaseItems) : fallbackAnyItem();
+
+    return { slug, lane, phase, itemId };
+  }
+
+  function findChampBySlug(slug) {
+    const id = slug.charAt(0).toUpperCase() + slug.slice(1);
+    // LoG slug nemusí odpovídat přesně DDragon id (dr-mundo vs DrMundo).
+    // Pro MVP: najdi podle case-insensitive + odstranění pomlček.
+    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g,"");
+    const target = norm(slug);
+    return champs.find(c => norm(c.id) === target) || rand(champs);
+  }
+
+  // --- Render ---
+  function setChamp(side, champ, extra) {
+    el(`${side}Icon`).src = champ.icon;
+    el(`${side}Icon`).alt = champ.name;
+    el(`${side}Name`).textContent = champ.name;
+    el(`${side}Info`).textContent = extra;
+  }
+
+  function setItem(side, item, extra) {
+    el(`${side}ItemIcon`).src = item.icon;
+    el(`${side}ItemIcon`).alt = item.name;
+    el(`${side}ItemName`).textContent = item.name;
+    el(`${side}ItemInfo`).textContent = extra;
+  }
+
+  // --- Game loop ---
+  let state = { correctId: null, correctName: "", reason: "" };
+
+  async function newRound() {
+    el("result").textContent = "";
+    el("result").className = "result";
+    el("reason").textContent = "";
+    const choicesEl = el("choices");
+    choicesEl.innerHTML = "";
+
+    // enemy from builds dataset
+    const enemyPick = pickEnemyFromBuilds();
+    const enemyChamp = findChampBySlug(enemyPick.slug);
+    const enemyItem = itemById.get(enemyPick.itemId);
+
+    // player champ random
+    const playerChamp = rand(champs);
+
+    setChamp("enemy", enemyChamp, `Lane: ${enemyPick.lane} • Fáze: ${enemyPick.phase}`);
+    setItem("enemy", enemyItem, `Item ID: ${enemyItem.id}`);
+
+    setChamp("player", playerChamp, `Náhodný champion`);
+
+    const counter = counterFor(enemyChamp.id, enemyPick.lane, enemyItem.id);
+    const correctId = itemById.has(counter.itemId) ? counter.itemId : fallbackAnyItem();
+    const wrongIds = pickWrongChoices(correctId, counter.category);
+    const ids = shuffle([correctId, ...wrongIds]);
+
+    state.correctId = correctId;
+    state.correctName = itemById.get(correctId)?.name ?? String(correctId);
+    state.reason = counter.reason;
+
+    for (const id of ids) {
+      const it = itemById.get(id);
+      const btn = document.createElement("button");
+      btn.className = "choice";
+      btn.innerHTML = `<img src="${it.icon}" alt="${it.name}"><div class="nm">${it.name}</div>`;
+      btn.onclick = () => onPick(id);
+      choicesEl.appendChild(btn);
+    }
+  }
+
+  function onPick(id) {
+    const ok = id === state.correctId;
+    if (ok) {
+      SCORE += 1;
+      STREAK += 1;
+      el("result").textContent = "SPRÁVNĚ";
+      el("result").className = "result ok";
+    } else {
+      STREAK = 0;
+      el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
+      el("result").className = "result bad";
+    }
+    scoreEl.textContent = String(SCORE);
+    streakEl.textContent = String(STREAK);
+    el("reason").textContent = state.reason;
+
+    // auto další kolo po krátké pauze
+    setTimeout(newRound, 900);
+  }
+
+  el("newBtn").addEventListener("click", newRound);
+
+  await newRound();
+})();
+</script>
+</body>
+</html>
