@@ -191,12 +191,14 @@
 
   // ---- Lane normalization ----
   function normLane(lane) {
-    const x = (lane || "").toLowerCase();
-    if (x === "bot" || x === "bottom") return "adc";
-    if (x === "mid") return "middle";
-    if (x === "jg") return "jungle";
-    return x;
-  }
+  const x = (lane || "").toLowerCase().trim();
+  if (x === "adc" || x === "bot" || x === "bottom") return "bottom";
+  if (x === "support") return "support";
+  if (x === "mid" || x === "middle") return "middle";
+  if (x === "jg" || x === "jungle") return "jungle";
+  if (x === "top") return "top";
+  return x;
+}
 
   // ---- Completed item filter ----
   const EXCLUDE_ITEM_IDS = new Set([2003,2031,2033,2032,3340,3364,3363,2055,2010,2015,2019,2021]);
@@ -301,12 +303,13 @@
 
   // ---- Sanity filter for lane vs champ tags ----
   function laneMatchesChampion(lane, champ) {
-    const ln = normLane(lane);
-    const tags = new Set(champ?.tags || []);
-    if (ln === "adc") return tags.has("Marksman");     // Nami/Anivia vyřadí
-    if (ln === "support") return tags.has("Support");  // typicky support
-    return true; // top/jungle/middle bez tvrdého filtru
-  }
+  const ln = normLane(lane);
+  const tags = new Set(champ?.tags || []);
+  if (ln === "bottom") return tags.has("Marksman");   // Nami/Soraka vypadnou
+  if (ln === "support") return tags.has("Support");
+  if (ln === "middle") return tags.has("Mage") || tags.has("Assassin");
+  return true;
+}
 
   // ---- Build scenario pool ----
   const SCENARIOS = [];
@@ -627,3 +630,4 @@
 </script>
 </body>
 </html>
+
