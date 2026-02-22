@@ -342,17 +342,26 @@
     }
 
     function getRelevantItemsFromRow(row, max = 6) {
-      const out = [];
-      for (const x of (row?.items || [])) {
-        const mapped = getRiotItemByLoGName(x?.name);
-        if (!mapped) continue;
-        const it = itemById.get(mapped.id);
-        if (!isRelevantItem(it)) continue;
-        out.push(it);
-        if (out.length >= max) break;
-      }
-      return out;
+  const out = [];
+  for (const x of (row?.items || [])) {
+    // Riot dataset: {id}
+    if (x?.id) {
+      const it = itemById.get(Number(x.id));
+      if (!isRelevantItem(it)) continue;
+      out.push(it);
+      if (out.length >= max) break;
+      continue;
     }
+    // Legacy (LoG): {name}
+    const mapped = getRiotItemByLoGName(x?.name);
+    if (!mapped) continue;
+    const it = itemById.get(mapped.id);
+    if (!isRelevantItem(it)) continue;
+    out.push(it);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
     function parsePct(x) {
       if (x == null) return 0;
@@ -850,3 +859,4 @@
 </script>
 </body>
 </html>
+
