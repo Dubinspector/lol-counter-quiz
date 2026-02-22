@@ -81,7 +81,7 @@
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Nejhranější build (z LoG)</div>
+      <div class="label" style="margin-top:14px;">Nejhranější build (z LoG) – jen hotové itemy</div>
       <div class="itemsRow" id="enemyBuildIcons"></div>
       <div class="sub" id="enemyBuildInfo" style="margin-top:8px;">—</div>
     </div>
@@ -96,7 +96,7 @@
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3)</div>
+      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3) – jen hotové itemy</div>
       <div class="choices" id="choices"></div>
 
       <div class="result" id="result"></div>
@@ -130,10 +130,9 @@
   let STREAK = 0;
   let awaitingNext = false;
 
-  // Patch
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
   const patch = versions[0];
-  patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Only completed items`;
+  patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only`;
 
   // Champions (+ tags)
   const champJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/champion.json`).then(r => r.json());
@@ -144,7 +143,7 @@
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
 
-  // Items (keep extra fields for filtering completed items)
+  // Items (need extra fields)
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
 
@@ -166,10 +165,9 @@
   // LoG dataset
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
-  // Game settings
   const LANES = ["top","jungle","middle","adc","support"];
   const RANKS = ["silver","gold"];
-  const PHASES = ["mid","late"]; // start často obsahuje start itemy => vypnuto
+  const PHASES = ["mid","late"]; // start vypnuto
 
   const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const shuffle = (arr) => {
@@ -181,20 +179,22 @@
     return a;
   };
 
-  // Exclude obvious non-learning items
+  // Exclude
   const EXCLUDE_ITEM_IDS = new Set([
     2003,2031,2033,2032, // potions
     3340,3364,3363,2055, // wards/oracle/control ward
-    2010,2015,2019,2021  // biscuits/refillables (varies by patch)
+    2010,2015,2019,2021  // biscuits/refillables (varies)
   ]);
 
+  // STRICT completed filter: depth>=3 AND no further upgrades (into empty)
   function isCompletedItem(it) {
     if (!it) return false;
     if (!it.inStore) return false;
     if (it.requiredChampion) return false;
-    if ((it.depth ?? 0) < 3) return false;     // completed items are typically depth 3
-    if (it.gold <= 0) return false;
     if (EXCLUDE_ITEM_IDS.has(it.id)) return false;
+    if ((it.gold ?? 0) <= 0) return false;
+    if ((it.depth ?? 0) < 3) return false;
+    if (Array.isArray(it.into) && it.into.length > 0) return false;
     return true;
   }
 
@@ -203,7 +203,7 @@
     return rand(pool).id;
   }
 
-  // Name normalization + mapping LoG names -> Riot items
+  // Normalize + map LoG names -> Riot items
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -257,7 +257,55 @@
     return "AD";
   }
 
-  // VALID POOL (only existing rows)
+  function setChamp(side, champ, extra) {
+    el(`${side}Icon`).src = champ.icon;
+    el(`${side}Icon`).alt = champ.name;
+    el(`${side}Name`).textContent = champ.name;
+    el(`${side}Info`).textContent = extra;
+  }
+
+  // Enemy row -> completed Riot items
+  function getCompletedEnemyItemsFromRow(row) {
+    const out = [];
+    for (const x of (row?.items || [])) {
+      const mapped = getRiotItemByLoGName(x?.name);
+      if (!mapped) continue;
+      const it = itemById.get(mapped.id);
+      if (!isCompletedItem(it)) continue;
+      out.push(it);
+      if (out.length >= 6) break;
+    }
+    return out;
+  }
+
+  function rowHasCompletedItem(row) {
+    for (const x of (row?.items || [])) {
+      const mapped = getRiotItemByLoGName(x?.name);
+      if (!mapped) continue;
+      const it = itemById.get(mapped.id);
+      if (isCompletedItem(it)) return true;
+    }
+    return false;
+  }
+
+  function renderEnemyBuildRowIcons(row) {
+    const wrap = el("enemyBuildIcons");
+    wrap.innerHTML = "";
+    const completed = getCompletedEnemyItemsFromRow(row);
+    if (completed.length === 0) return 0;
+
+    for (const it of completed) {
+      const img = document.createElement("img");
+      img.className = "mini";
+      img.alt = it.name;
+      img.title = it.name;
+      img.src = it.icon;
+      wrap.appendChild(img);
+    }
+    return completed.length;
+  }
+
+  // Build VALID_POOL only for rows that contain at least one completed item
   const VALID_POOL = []; // {slug,lane,rank,phase}
   for (const [slug, lanesObj] of Object.entries(logData.champions || {})) {
     for (const [lane, ranksObj] of Object.entries(lanesObj || {})) {
@@ -266,15 +314,14 @@
         if (!node) continue;
         for (const phase of PHASES) {
           const rows = node?.[phase];
-          if (Array.isArray(rows) && rows.length > 0) {
-            VALID_POOL.push({ slug, lane, rank, phase });
-          }
+          if (!Array.isArray(rows) || rows.length === 0) continue;
+          if (rowHasCompletedItem(rows[0])) VALID_POOL.push({ slug, lane, rank, phase });
         }
       }
     }
   }
   if (VALID_POOL.length === 0) {
-    throw new Error("VALID_POOL je prázdný. Dataset log_builds.json nemá žádné použitelné kombinace.");
+    throw new Error("VALID_POOL je prázdný po filtru hotových itemů. Chybí mapování názvů itemů.");
   }
 
   function pickEnemyFromLog() {
@@ -286,58 +333,13 @@
     return { slug, lane, rank, phase, bestRow: best };
   }
 
-  function setChamp(side, champ, extra) {
-    el(`${side}Icon`).src = champ.icon;
-    el(`${side}Icon`).alt = champ.name;
-    el(`${side}Name`).textContent = champ.name;
-    el(`${side}Info`).textContent = extra;
-  }
-
-  function renderEnemyBuildRowIcons(row) {
-    const wrap = el("enemyBuildIcons");
-    wrap.innerHTML = "";
-    const list = (row?.items || []).slice(0, 6);
-    for (const x of list) {
-      const riot = getRiotItemByLoGName(x?.name);
-      const use = (riot && isCompletedItem(riot)) ? riot : null;
-      const img = document.createElement("img");
-      img.className = "mini";
-      img.alt = x?.name || "";
-      img.title = x?.name || "";
-      img.src = use?.icon || x?.src || "";
-      wrap.appendChild(img);
-    }
-  }
-
-  function pickKeyEnemyCompletedItemIdFromRow(row) {
-    for (const x of (row?.items || [])) {
-      const mapped = getRiotItemByLoGName(x?.name);
-      if (!mapped) continue;
-      const it = itemById.get(mapped.id);
-      if (!isCompletedItem(it)) continue;
-      return it.id;
-    }
-    return fallbackAnyCompletedItem();
-  }
-
-  // Counter logic (threat-based + player archetype)
+  // Counter logic (threat based)
   function counterForRow(enemyChampId, enemyLane, row, playerChamp) {
-    const enemyIds = [];
-    const enemyNamesLower = (row?.items || []).map(x => (x?.name || "").toLowerCase());
-
-    for (const x of (row?.items || [])) {
-      const mapped = getRiotItemByLoGName(x?.name);
-      if (!mapped) continue;
-      const it = itemById.get(mapped.id);
-      if (!isCompletedItem(it)) continue;
-      enemyIds.push(it.id);
-    }
-
-    const enemyText = enemyNamesLower.join(" | ");
+    const enemyCompleted = getCompletedEnemyItemsFromRow(row);
+    const enemyText = (row?.items || []).map(x => (x?.name || "").toLowerCase()).join(" | ");
     const arch = playerArchetype(playerChamp);
 
-    const countTag = (tag) => enemyIds.reduce((acc,id)=>{
-      const it=itemById.get(id); if(!it) return acc;
+    const countTag = (tag) => enemyCompleted.reduce((acc,it)=>{
       return acc + ((it.tags||[]).includes(tag) ? 1 : 0);
     },0);
 
@@ -357,13 +359,11 @@
     const armorStack = countTag("Armor") >= 2 || countTag("Health") >= 3;
     const apStack = countTag("SpellDamage") >= 2;
 
-    // 1) Antishield
     if (looksShield) {
       const id = pick(["Serpent's Fang"], fallbackAnyCompletedItem());
       return { itemId: id, reason: "Enemy má hodně shieldů → antishield." };
     }
 
-    // 2) Antiheal (by archetype)
     if (looksHeal) {
       let id = null;
       if (arch === "AP") id = pick(["Morellonomicon"], null);
@@ -372,31 +372,27 @@
       return { itemId: id, reason: "Enemy má sustain/heal → antiheal." };
     }
 
-    // 3) Anti-crit / anti-AA
     if (looksCrit) {
       const id = pick(["Randuin's Omen","Frozen Heart"], fallbackAnyCompletedItem());
       return { itemId: id, reason: "Enemy je crit/autoattack DPS → anti-crit/anti-AA." };
     }
 
-    // 4) Penetration vs armor/HP stack (not always LDR)
     if (armorStack) {
       const id = pick(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"], fallbackAnyCompletedItem());
       return { itemId: id, reason: "Enemy stackuje armor/HP → penetration." };
     }
 
-    // 5) MR vs AP-heavy build (basic)
     if (apStack) {
       const id = pick(["Kaenic Rookern","Force of Nature","Maw of Malmortius","Wit's End"], fallbackAnyCompletedItem());
       return { itemId: id, reason: "Enemy je silně AP → MR item." };
     }
 
-    // 6) Fallback pool (not always Zhonya)
     const fallbackList = ["Guardian Angel","Banshee's Veil","Edge of Night","Mikael's Blessing"];
     const id = pick(fallbackList, fallbackAnyCompletedItem());
     return { itemId: id, reason: "Není jasný hard-counter → defensivní/outplay item." };
   }
 
-  // Wrong choices: only completed items
+  // Wrong choices: completed only
   function pickWrongChoices(correctId) {
     const correct = itemById.get(correctId);
     const poolAll = items.filter(i => isCompletedItem(i) && i.id !== correctId);
@@ -408,7 +404,7 @@
       for (const t of i.tags ?? []) if (correctTags.has(t)) tagOverlap++;
       const score = price - tagOverlap * 150;
       return { i, score };
-    }).sort((a,b)=>a.score-b.score).slice(0, 220).map(x=>x.i);
+    }).sort((a,b)=>a.score-b.score).slice(0, 240).map(x=>x.i);
 
     const out = [];
     while (out.length < 2 && scored.length) {
@@ -419,25 +415,23 @@
     return out;
   }
 
-  let state = { correctId: null, correctName: "", reason: "" };
-
   function lockChoices(locked) {
     const btns = document.querySelectorAll("button.choice");
     btns.forEach(b => b.disabled = locked);
   }
 
+  let state = { correctId: null, correctName: "", reason: "" };
+
   async function newRound() {
     awaitingNext = false;
     nextBtn.style.display = "none";
     nextBtn.disabled = true;
-
     newBtn.disabled = false;
 
     el("result").textContent = "";
     el("result").className = "result";
     el("reason").textContent = "";
-    const choicesEl = el("choices");
-    choicesEl.innerHTML = "";
+    el("choices").innerHTML = "";
 
     const enemyPick = pickEnemyFromLog();
     const enemyChamp = findChampBySlug(enemyPick.slug);
@@ -449,16 +443,16 @@
     const row = enemyPick.bestRow;
     if (!row) return newRound();
 
-    renderEnemyBuildRowIcons(row);
+    const shown = renderEnemyBuildRowIcons(row);
+    if (shown === 0) return newRound();
 
     const pickRate = row.pickRate ?? null;
     const winRate = row.winRate ?? null;
     el("enemyBuildInfo").textContent = `Pick: ${pickRate ?? "—"}% • Win: ${winRate ?? "—"}%`;
 
-    // compute counter based on whole row
     const counter = counterForRow(enemyChamp.id, enemyPick.lane, row, playerChamp);
-
     const correctId = (counter?.itemId && isCompletedItem(itemById.get(counter.itemId))) ? counter.itemId : fallbackAnyCompletedItem();
+
     const wrongIds = pickWrongChoices(correctId);
     const ids = shuffle([correctId, ...wrongIds]);
 
@@ -472,7 +466,7 @@
       btn.className = "choice";
       btn.innerHTML = `<img src="${it.icon}" alt="${it.name}"><div class="nm">${it.name}</div>`;
       btn.onclick = () => onPick(id);
-      choicesEl.appendChild(btn);
+      el("choices").appendChild(btn);
     }
   }
 
@@ -509,9 +503,7 @@
     newRound();
   });
 
-  nextBtn.addEventListener("click", () => {
-    newRound();
-  });
+  nextBtn.addEventListener("click", () => newRound());
 
   await newRound();
 })();
