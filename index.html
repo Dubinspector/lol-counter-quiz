@@ -11,7 +11,7 @@
     body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0b0b0b; color:#f1f1f1; }
     header { padding: var(--pad); border-bottom: 1px solid #222; display:flex; gap:10px; align-items:center; justify-content:space-between; }
     header h1 { font-size: 16px; margin: 0; font-weight: 800; }
-    header .meta { font-size: 12px; color:#bdbdbd; line-height: 1.35; }
+    header .meta { font-size: 12px; color:#bdbdbd; line-height: 1.35; white-space: pre-line; }
     main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
     .grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
     @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
@@ -34,7 +34,7 @@
     }
     button.choice:active { transform: scale(0.98); }
     button.choice:disabled { opacity: 0.55; cursor: not-allowed; }
-    button.choice img { width: 56px; height: 56px; border-radius: 12px; border:1px solid #222; display:block; margin: 0 auto; }
+    button.choice img { width: 56px; height: 56px; border-radius: 12px; border:1px solid #222; display:block; margin: 0 auto; background:#000; object-fit:cover; }
     button.choice .nm { font-size: 11px; color:#d8d8d8; margin-top: 8px; line-height: 1.2; text-align:center; }
     .bar { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
     button.primary {
@@ -52,12 +52,11 @@
     footer { padding: var(--pad); color:#9a9a9a; font-size: 11px; line-height: 1.35; }
     .itemsRow { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     .mini { width: 44px; height: 44px; border-radius: 12px; border:1px solid #222; background:#000; object-fit:cover; }
-    .actionsRow { display:flex; gap: 10px; margin-top: 12px; }
-    #nextBtn { display:none; width:100%; }
     .analysisBox { margin-top: 10px; padding: 10px; border:1px solid #222; border-radius: 14px; background:#0e0e0e; }
     .analysisBox .t { font-weight: 900; margin-bottom: 6px; }
     .analysisBox ul { margin: 8px 0 0 16px; padding: 0; }
     .analysisBox li { margin: 4px 0; }
+    #nextBtn { display:none; width:100%; }
   </style>
 </head>
 <body>
@@ -85,11 +84,11 @@
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Build oponenta (z exportu) – jen hotové itemy</div>
+      <div class="label" style="margin-top:14px;">Build oponenta (z exportu) – bez potion/ward/trinket</div>
       <div class="itemsRow" id="enemyBuildIcons"></div>
       <div class="sub" id="enemyBuildInfo" style="margin-top:8px;">—</div>
 
-      <div class="label" style="margin-top:14px;">Tvůj build (z exportu) – jen hotové itemy</div>
+      <div class="label" style="margin-top:14px;">Tvůj build (z exportu) – bez potion/ward/trinket</div>
       <div class="itemsRow" id="playerBuildIcons"></div>
       <div class="sub" id="playerBuildInfo" style="margin-top:8px;">—</div>
     </div>
@@ -104,7 +103,7 @@
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3) – jen hotové itemy</div>
+      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3) – stejné “tier” (gold/depth)</div>
       <div class="choices" id="choices"></div>
 
       <div class="result" id="result"></div>
@@ -115,7 +114,7 @@
         <ul class="small" id="bullets"></ul>
       </div>
 
-      <div class="actionsRow">
+      <div style="margin-top:12px;">
         <button class="primary" id="nextBtn">Další</button>
       </div>
     </div>
@@ -143,10 +142,27 @@
   let STREAK = 0;
   let awaitingNext = false;
 
-  // ---- Patch + DDragon ----
-  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
-  const patch = versions[0];
+  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const shuffle = (arr) => {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
 
+  // ---- Load export FIRST (for patch pin) ----
+  const logData = await fetch("./data/log_builds.json").then(r => r.json());
+
+  // dataset patch pin (ground truth if present)
+  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
+  const datasetPatch =
+    (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
+
+  const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
+
+  // ---- DDragon ----
   const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`).then(r => r.json());
   const champs = Object.values(champFull.data).map(c => ({
     id: c.id,
@@ -167,40 +183,43 @@
     depth: it.depth ?? 0,
     into: it.into ?? [],
     requiredChampion: it.requiredChampion ?? null,
-    inStore: it.inStore !== false
+    inStore: it.inStore !== false,
+    maps: it.maps ?? null
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
-  // ---- Export ----
-  const logData = await fetch("./data/log_builds.json").then(r => r.json());
-
+  // ---- CONFIG ----
   const RANKS = ["silver","gold"];
   const PHASES = ["mid","late"];
 
-  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const shuffle = (arr) => {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  };
+  // ---- Hard exclusions: NEVER show ----
+  // Consumables, trinkets, wards, elixirs, biscuits, etc.
+  const HARD_BANNED_ITEM_IDS = new Set([
+    2003, 2031, 2033, 2032, // potions/biscuits
+    2055,                   // control ward
+    3340, 3363, 3364,       // trinkets
+    2010, 2015, 2019, 2021, // biscuits/refillables etc (varies by patch)
+    2052, 2051, 2138, 2139, 2140 // other consumables/elixirs (patch dependent; safe ban)
+  ]);
 
-  // ---- Completed item filter ----
-  const EXCLUDE_ITEM_IDS = new Set([2003,2031,2033,2032,3340,3364,3363,2055,2010,2015,2019,2021]);
-  function isCompletedItem(it) {
+  function isRelevantItem(it) {
     if (!it) return false;
     if (!it.inStore) return false;
     if (it.requiredChampion) return false;
-    if (EXCLUDE_ITEM_IDS.has(it.id)) return false;
+    if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
     if ((it.gold ?? 0) <= 0) return false;
-    if ((it.depth ?? 0) < 3) return false;
-    if (Array.isArray(it.into) && it.into.length > 0) return false;
+
+    // tag-based bans
+    const tags = new Set(it.tags || []);
+    if (tags.has("Consumable")) return false;
+    if (tags.has("Trinket")) return false;
+
+    // ward items sometimes lack tags; catch by name too
+    const n = (it.name || "").toLowerCase();
+    if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
+
     return true;
   }
-  const COMPLETED_POOL = items.filter(isCompletedItem);
-  const fallbackAnyCompletedItem = () => rand(COMPLETED_POOL).id;
 
   // ---- LoG -> Riot item mapping ----
   const normalizeName = (s) =>
@@ -222,10 +241,13 @@
   function getRiotItemByLoGName(logName) {
     const n = normalizeName(logName);
     if (itemByNormName.has(n)) return itemByNormName.get(n);
+
     for (const [a, b] of NAME_ALIASES.entries()) {
       if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
       if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
     }
+
+    // fuzzy
     for (const [k, v] of itemByNormName.entries()) {
       if (k.includes(n) || n.includes(k)) return v;
     }
@@ -248,35 +270,14 @@
     const wrap = el(containerId);
     wrap.innerHTML = "";
     for (const it of itemList) {
-      if (!it || !it.icon) continue;
       const img = document.createElement("img");
       img.className = "mini";
       img.alt = it.name;
       img.title = it.name;
-      img.onerror = () => img.remove();
       img.src = it.icon + `?v=${Date.now()}`;
+      img.onerror = () => { img.remove(); }; // we never allow rounds with missing icons (validated earlier)
       wrap.appendChild(img);
     }
-  }
-
-  // ---- Export readers (laneRaw = exact key from export) ----
-  function getTopRow(slug, laneRaw, rank, phase) {
-    const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    return rows[0];
-  }
-
-  function getCompletedItemsFromRow(row, max = 6) {
-    const out = [];
-    for (const x of (row?.items || [])) {
-      const mapped = getRiotItemByLoGName(x?.name);
-      if (!mapped) continue;
-      const it = itemById.get(mapped.id);
-      if (!isCompletedItem(it)) continue;
-      out.push(it);
-      if (out.length >= max) break;
-    }
-    return out;
   }
 
   function champFromSlug(slug) {
@@ -285,46 +286,51 @@
     return found || rand(champs);
   }
 
-  // ---- Soft sanity (keeps more data, blocks obvious nonsense) ----
-  // Still NO lane renames; only interpret laneRaw string to filter extreme off-role.
-  function laneKind(laneRaw) {
-    const x = (laneRaw || "").toLowerCase().trim();
-    if (x.includes("support") || x === "supp") return "SUPPORT";
-    if (x === "adc" || x.includes("bot") || x.includes("bottom")) return "ADC";
-    if (x.includes("jungle") || x === "jg") return "JUNGLE";
-    if (x.includes("mid") || x.includes("middle")) return "MID";
-    if (x.includes("top")) return "TOP";
-    return "UNKNOWN";
+  // ---- Export readers (laneRaw is EXACT key from export) ----
+  function getTopRow(slug, laneRaw, rank, phase) {
+    const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    return rows[0];
   }
 
-  function softLaneOk(laneRaw, champ) {
-    const k = laneKind(laneRaw);
-    const tags = new Set(champ?.tags || []);
-    if (k === "SUPPORT") return tags.has("Support");
-    if (k === "ADC") return tags.has("Marksman"); // blocks Soraka/Nami ADC if export is wrong
-    if (k === "JUNGLE") return tags.has("Assassin") || tags.has("Fighter") || tags.has("Tank");
-    if (k === "MID") return tags.has("Mage") || tags.has("Assassin");
-    if (k === "TOP") return tags.has("Fighter") || tags.has("Tank");
-    return true;
+  // Extract a "visible build" from a row:
+  // - map names to riot items
+  // - drop banned/irrelevant
+  // - require icons exist (we validate by having icon URL)
+  function getRelevantItemsFromRow(row, max = 6) {
+    const out = [];
+    for (const x of (row?.items || [])) {
+      const mapped = getRiotItemByLoGName(x?.name);
+      if (!mapped) return null; // strict: if any shown item can't map, reject this row
+      const it = itemById.get(mapped.id);
+      if (!isRelevantItem(it)) continue;
+      if (!it.icon) return null;
+      out.push(it);
+      if (out.length >= max) break;
+    }
+    return out;
   }
 
-  // ---- Build scenario pool ----
+  // ---- Scenario pool built ONLY from export (no guessing) ----
   const allSlugs = Object.keys(logData.champions || {});
   const playerCandidates = new Map(); // key -> [slug...]
   const key = (laneRaw, rank, phase) => `${laneRaw}::${rank}::${phase}`;
 
-  // candidate lists
+  // Collect lane keys exactly as export uses them
+  const lanesInExport = new Set();
   for (const slug of allSlugs) {
-    const champ = champFromSlug(slug);
-    const lanesObj = logData.champions[slug] || {};
-    for (const laneRaw of Object.keys(lanesObj)) {
-      if (!softLaneOk(laneRaw, champ)) continue;
+    for (const laneRaw of Object.keys(logData.champions[slug] || {})) lanesInExport.add(laneRaw);
+  }
 
+  // Build candidate lists
+  for (const slug of allSlugs) {
+    for (const laneRaw of Object.keys(logData.champions[slug] || {})) {
       for (const rank of RANKS) for (const phase of PHASES) {
         const row = getTopRow(slug, laneRaw, rank, phase);
         if (!row) continue;
-        const built = getCompletedItemsFromRow(row, 6);
-        if (built.length < 3) continue;
+
+        const itemsList = getRelevantItemsFromRow(row, 6);
+        if (!itemsList || itemsList.length < 2) continue; // allow early builds too (2+)
 
         const k = key(laneRaw, rank, phase);
         if (!playerCandidates.has(k)) playerCandidates.set(k, []);
@@ -333,22 +339,18 @@
     }
   }
 
-  // scenarios grouped by laneRaw for balanced sampling
-  const scenariosByLane = new Map(); // laneRaw -> scenarios[]
+  // Scenarios grouped by laneRaw (balanced sampling)
+  const scenariosByLane = new Map();
   let totalScenarios = 0;
 
   for (const slug of allSlugs) {
-    const champ = champFromSlug(slug);
-    const lanesObj = logData.champions[slug] || {};
-    for (const laneRaw of Object.keys(lanesObj)) {
-      if (!softLaneOk(laneRaw, champ)) continue;
-
+    for (const laneRaw of Object.keys(logData.champions[slug] || {})) {
       for (const rank of RANKS) for (const phase of PHASES) {
         const row = getTopRow(slug, laneRaw, rank, phase);
         if (!row) continue;
 
-        const enemyBuild = getCompletedItemsFromRow(row, 6);
-        if (enemyBuild.length < 3) continue;
+        const enemyItems = getRelevantItemsFromRow(row, 6);
+        if (!enemyItems || enemyItems.length < 2) continue;
 
         const k = key(laneRaw, rank, phase);
         const candidates = (playerCandidates.get(k) || []).filter(s => s !== slug);
@@ -362,20 +364,20 @@
     }
   }
 
-  if (totalScenarios === 0) throw new Error("Žádné scénáře po filtrech (hotové itemy / kandidáti).");
+  if (totalScenarios === 0) throw new Error("Dataset po filtrech nemá žádné scénáře (mapování itemů/ikony).");
 
-  // ---- Diagnostics in header ----
+  // diagnostics
   const laneLines = [];
   for (const [laneRaw, arr] of [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length)) {
     laneLines.push(`${laneRaw}:${arr.length}`);
   }
   patchMeta.textContent =
-    `Patch: ${patch} • Dataset: data/log_builds.json • scénáře: ${totalScenarios}\n` +
-    `lane scénáře: ${laneLines.join(" | ")}`;
+    `Patch: ${patch} • Dataset: data/log_builds.json\n` +
+    `Scénáře: ${totalScenarios}\n` +
+    `Lane scénáře: ${laneLines.join(" | ")}`;
 
-  // ---- Balanced lane sampling ----
+  // balanced lane pick (no conversions; uses laneRaw)
   const lanesList = [...scenariosByLane.keys()];
-  // weight = 1/count so small lanes get chosen more often
   const laneWeights = lanesList.map(l => 1 / Math.max(1, scenariosByLane.get(l).length));
   const laneWeightSum = laneWeights.reduce((a,b)=>a+b,0);
 
@@ -388,8 +390,7 @@
     return lanesList[lanesList.length - 1];
   }
 
-  // per-lane bags to avoid repeats
-  const laneBags = new Map(); // laneRaw -> scenario[]
+  const laneBags = new Map();
   function nextScenario() {
     const laneRaw = pickLaneBalanced();
     if (!laneBags.has(laneRaw) || laneBags.get(laneRaw).length === 0) {
@@ -398,7 +399,7 @@
     return laneBags.get(laneRaw).pop();
   }
 
-  // anti-repeat for champs
+  // anti-repeat champs
   const RECENT_N = 10;
   const recentEnemies = [];
   const recentPlayers = [];
@@ -410,178 +411,189 @@
     return rand(candidates);
   }
 
-  // ---- Counter logic: stop "Locket always correct" ----
-  const HARD_PICK_CC = new Set(["leona","nautilus","blitzcrank","thresh","rell","morgana"]);
-  const SUPPORT_ONLY_IDS = new Set(
-    ["Locket of the Iron Solari","Redemption","Mikael's Blessing","Knight's Vow","Zeke's Convergence","Shurelya's Battlesong"]
-      .map(riotItemIdByName).filter(Boolean)
-  );
+  // ---- “Tier” matching for choices ----
+  function tierBucket(it) {
+    const g = it.gold || 0;
+    const d = it.depth || 0;
+    // gold bands
+    let band = 0;
+    if (g <= 500) band = 0;
+    else if (g <= 900) band = 1;       // e.g. Doran items / cheap starts
+    else if (g <= 1400) band = 2;      // early components
+    else if (g <= 2000) band = 3;      // bigger components / cheap legendaries in some patches
+    else if (g <= 2600) band = 4;
+    else if (g <= 3200) band = 5;
+    else band = 6;
 
-  function isSupportLane(laneRaw) { return laneKind(laneRaw) === "SUPPORT"; }
-
-  function pickExisting(names) {
-    for (const n of names) {
-      const id = riotItemIdByName(n);
-      if (!id) continue;
-      const it = itemById.get(id);
-      if (isCompletedItem(it)) return it.id;
-    }
-    return null;
-  }
-
-  function counterForScenario({ laneRaw, phase, enemyChampId, enemyBuild }) {
-    const enemyChamp = champById.get((enemyChampId||"").toLowerCase());
-    const enemyTags = new Set(enemyChamp?.tags || []);
-    const enemyNames = enemyBuild.map(x => x.name.toLowerCase()).join(" | ");
-
-    const armorStack = enemyBuild.filter(it => (it.tags||[]).includes("Armor") || (it.tags||[]).includes("Health")).length >= 3;
-    const looksCrit = ["infinity edge","rapid firecannon","phantom dancer","statikk","navori","the collector","bloodthirster"].some(s => enemyNames.includes(s));
-    const looksHeal = ["riftmaker","bloodthirster","ravenous","vamp","omnivamp"].some(s => enemyNames.includes(s));
-    const looksShieldChamp = ["lulu","janna","karma","shen","lux","seraphine","sion"].includes((enemyChampId||"").toLowerCase());
-
-    let kind = "fallback";
-    let correctId = null;
-    const bullets = [];
-
-    // global rules (not support-only)
-    if (looksShieldChamp) {
-      const sf = pickExisting(["Serpent's Fang"]);
-      if (sf) {
-        kind = "antishield";
-        correctId = sf;
-        bullets.push("Enemy champ je shield-based → antishield zvyšuje efektivní damage.");
-      }
-    }
-
-    if (!correctId && looksHeal) {
-      kind = "antiheal";
-      // keep generic GW options; support lane will not be forced into Locket
-      correctId = pickExisting(["Morellonomicon","Thornmail","Mortal Reminder","Chempunk Chainsword"]);
-      if (correctId) bullets.push("Enemy má sustain/heal → bez GW se fight protáhne a enemy se vyhealí.");
-    }
-
-    if (!correctId && looksCrit) {
-      kind = "anticrit";
-      correctId = pickExisting(["Randuin's Omen","Frozen Heart"]);
-      if (correctId) bullets.push("Enemy má crit/AA DPS → snížit DPS a přežít burst.");
-    }
-
-    if (!correctId && armorStack) {
-      kind = "armorpen";
-      correctId = pickExisting(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"]);
-      if (correctId) bullets.push("Enemy stackuje armor/HP → bez penetrace mu nebudeš ubírat.");
-    }
-
-    // support lane: threat-based selection, not always Locket
-    if (!correctId && isSupportLane(laneRaw)) {
-      const isHardPickCC = HARD_PICK_CC.has((enemyChampId||"").toLowerCase());
-      const isAssassin = enemyTags.has("Assassin");
-      const isMage = enemyTags.has("Mage");
-      const isFighter = enemyTags.has("Fighter");
-
-      if (isHardPickCC) {
-        const m = pickExisting(["Mikael's Blessing"]);
-        if (m) {
-          kind = "cleanse";
-          correctId = m;
-          bullets.push("Support vs hard pick CC → Mikael zachrání carry při hook/stun.");
-        }
-      }
-
-      if (!correctId && isAssassin) {
-        const l = pickExisting(["Locket of the Iron Solari"]);
-        if (l) {
-          kind = "antiBurst";
-          correctId = l;
-          bullets.push("Assassin threat → Locket sníží burst na carry v první vlně.");
-        }
-      }
-
-      if (!correctId && isMage && !isHardPickCC) {
-        const r = pickExisting(["Redemption"]);
-        if (r) {
-          kind = "pokeSustain";
-          correctId = r;
-          bullets.push("Mage/poke fighty → Redemption přidá sustain a value v prodloužených fightech.");
-        }
-      }
-
-      if (!correctId && (isFighter || enemyTags.has("Tank"))) {
-        const zv = pickExisting(["Zeke's Convergence","Knight's Vow"]);
-        if (zv) {
-          kind = "frontToBack";
-          correctId = zv;
-          bullets.push("Front-to-back / engage fight → Zeke/Vow zvyšují hodnotu peel/engage kolem carry.");
-        }
-      }
-
-      // still nothing: rotate support items (prevents “always Locket”)
-      if (!correctId) {
-        const rotation = ["Shurelya's Battlesong","Redemption","Knight's Vow","Zeke's Convergence","Locket of the Iron Solari"];
-        correctId = pickExisting(rotation);
-        kind = "supportRotation";
-        bullets.push("Žádný tvrdý trigger → support rotace itemů (ne 1 univerzální odpověď).");
-      }
-    }
-
-    // non-support fallback by enemy tag (not Locket)
-    if (!correctId) {
-      kind = "fallback";
-      if (enemyTags.has("Assassin")) correctId = pickExisting(["Zhonya's Hourglass","Guardian Angel","Edge of Night"]);
-      else if (enemyTags.has("Mage")) correctId = pickExisting(["Banshee's Veil","Force of Nature","Spirit Visage"]);
-      else correctId = pickExisting(["Guardian Angel","Death's Dance","Sterak's Gage","Randuin's Omen"]);
-      if (!correctId) correctId = fallbackAnyCompletedItem();
-      bullets.push("Bez jasného hard-counteru → defenzivní/outplay item podle hrozby.");
-    }
-
-    const phaseText = phase === "late" ? "late game" : "mid game";
-    let why = `Lane: ${laneRaw}, ${phaseText}. `;
-    if (kind === "armorpen") why += "Armor/HP stacking → bez penetrace nemáš damage do fronty.";
-    else if (kind === "antiheal") why += "Sustain/heal → potřebuješ GW, jinak enemy přetlačí fight.";
-    else if (kind === "antishield") why += "Shields → antishield zvyšuje efektivní damage do targetu.";
-    else if (kind === "anticrit") why += "Crit/AA DPS → potřebuješ snížit jejich DPS / přežít burst.";
-    else if (kind === "cleanse") why += "Support vs hard CC pick → Mikael je cílený answer na chycení carry.";
-    else if (kind === "antiBurst") why += "Assassin burst → Locket sníží první vlnu damage na carry.";
-    else if (kind === "pokeSustain") why += "Poke/mage fight → Redemption dává value v prodloužených výměnách.";
-    else if (kind === "frontToBack") why += "Front-to-back fight → Vow/Zeke dávají konzistentní teamfight value.";
-    else why += "Fallback je bezpečný outplay/def item.";
-
-    return { correctId, why, bullets };
+    // depth bands (meaning-ish)
+    let depthBand = 0;
+    if (d <= 1) depthBand = 0;         // base/starts
+    else if (d === 2) depthBand = 1;
+    else if (d === 3) depthBand = 2;
+    else depthBand = 3;                // 4+ (rare)
+    return `${band}::${depthBand}`;
   }
 
   function pickWrongChoices(correctId, laneRaw) {
     const correct = itemById.get(correctId);
-    let poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
+    const correctTier = tierBucket(correct);
+    const correctGold = correct.gold || 0;
+    const correctDepth = correct.depth || 0;
 
-    // remove support-only items outside support
-    if (!isSupportLane(laneRaw)) {
-      poolAll = poolAll.filter(i => !SUPPORT_ONLY_IDS.has(i.id));
+    // candidate pool: all relevant items in ddragon, never banned, never correct
+    let pool = items.filter(it => it.id !== correctId && isRelevantItem(it));
+
+    // keep same tier bucket primarily
+    const sameTier = pool.filter(it => tierBucket(it) === correctTier);
+    if (sameTier.length >= 20) pool = sameTier;
+
+    // secondary: keep gold close and depth close
+    pool = pool.filter(it => Math.abs((it.gold||0) - correctGold) <= 300 && Math.abs((it.depth||0) - correctDepth) <= 1);
+
+    // fallback if too strict
+    if (pool.length < 30) {
+      pool = items
+        .filter(it => it.id !== correctId && isRelevantItem(it))
+        .filter(it => Math.abs((it.gold||0) - correctGold) <= 600 && Math.abs((it.depth||0) - correctDepth) <= 1);
     }
 
-    // also: if correct is support-only, keep wrongs support-ish to be plausible
-    if (isSupportLane(laneRaw) && SUPPORT_ONLY_IDS.has(correctId)) {
-      const supportPool = poolAll.filter(i => SUPPORT_ONLY_IDS.has(i.id));
-      if (supportPool.length >= 2) poolAll = supportPool;
-    }
-
-    const correctTags = new Set(correct?.tags ?? []);
-    const scored = poolAll.map(i => {
-      const price = Math.abs((i.gold||0) - (correct?.gold||0));
-      let tagOverlap = 0;
-      for (const t of i.tags ?? []) if (correctTags.has(t)) tagOverlap++;
-      const score = price - tagOverlap * 150;
-      return { i, score };
-    }).sort((a,b)=>a.score-b.score).slice(0, 320).map(x=>x.i);
+    // score for plausibility (similar tags + close gold)
+    const ct = new Set(correct.tags || []);
+    const scored = pool.map(it => {
+      let overlap = 0;
+      for (const t of (it.tags||[])) if (ct.has(t)) overlap++;
+      const price = Math.abs((it.gold||0) - correctGold);
+      return { it, s: price - overlap * 120 };
+    }).sort((a,b)=>a.s-b.s).slice(0, 250).map(x=>x.it);
 
     const out = [];
     while (out.length < 2 && scored.length) {
-      const pick = rand(scored);
-      if (!out.includes(pick.id) && pick.id !== correctId) out.push(pick.id);
+      const p = rand(scored);
+      if (!out.includes(p.id) && p.id !== correctId) out.push(p.id);
     }
-    while (out.length < 2) out.push(fallbackAnyCompletedItem());
+
+    // hard fallback if something goes wrong
+    while (out.length < 2) {
+      const p = rand(items.filter(it => isRelevantItem(it) && it.id !== correctId));
+      if (!out.includes(p.id)) out.push(p.id);
+    }
     return out;
   }
 
+  // ---- Counter logic (still heuristic, but no “universal” items) ----
+  // IMPORTANT: correct item is ALWAYS relevant, and wrongs are same-tier.
+  const HARD_PICK_CC = new Set(["leona","nautilus","blitzcrank","thresh","rell","morgana"]);
+
+  function counterForScenario({ laneRaw, phase, enemyChampId, enemyItems, playerItems }) {
+    const enemyChamp = champById.get((enemyChampId||"").toLowerCase());
+    const enemyTags = new Set(enemyChamp?.tags || []);
+    const enemyNames = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
+
+    const hasHeavyArmor = enemyItems.some(it => (it.tags||[]).includes("Armor")) && enemyItems.length >= 3;
+    const looksCrit = ["infinity edge","rapid firecannon","phantom dancer","statikk","navori","the collector","bloodthirster"].some(s => enemyNames.includes(s));
+    const looksHeal = ["riftmaker","bloodthirster","ravenous","vamp","omnivamp"].some(s => enemyNames.includes(s));
+    const looksShieldChamp = ["lulu","janna","karma","shen","lux","seraphine","sion"].includes((enemyChampId||"").toLowerCase());
+
+    const pickExisting = (names) => {
+      for (const n of names) {
+        const id = riotItemIdByName(n);
+        if (!id) continue;
+        const it = itemById.get(id);
+        if (isRelevantItem(it)) return it.id;
+      }
+      return null;
+    };
+
+    let correctId = null;
+    let kind = "fallback";
+    const bullets = [];
+
+    if (looksShieldChamp) {
+      const sf = pickExisting(["Serpent's Fang"]);
+      if (sf) {
+        correctId = sf;
+        kind = "antishield";
+        bullets.push("Enemy je shield-based → antishield zvedá efektivní damage.");
+      }
+    }
+
+    if (!correctId && looksHeal) {
+      const gw = pickExisting(["Morellonomicon","Thornmail","Mortal Reminder","Chempunk Chainsword"]);
+      if (gw) {
+        correctId = gw;
+        kind = "antiheal";
+        bullets.push("Enemy má sustain/heal → bez GW fight ztratíš na délku.");
+      }
+    }
+
+    if (!correctId && looksCrit) {
+      const anti = pickExisting(["Randuin's Omen","Frozen Heart"]);
+      if (anti) {
+        correctId = anti;
+        kind = "anticrit";
+        bullets.push("Enemy má crit/AA DPS → přežít a snížit DPS.");
+      }
+    }
+
+    if (!correctId && hasHeavyArmor) {
+      const pen = pickExisting(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"]);
+      if (pen) {
+        correctId = pen;
+        kind = "armorpen";
+        bullets.push("Enemy má armor → bez pen nebudeš ubírat.");
+      }
+    }
+
+    // Support-only answer only if laneRaw indicates support AND enemy is hard pick CC
+    const laneLower = (laneRaw||"").toLowerCase();
+    const isSupportLane = laneLower.includes("support") || laneLower === "supp";
+
+    if (!correctId && isSupportLane) {
+      const isHardPickCC = HARD_PICK_CC.has((enemyChampId||"").toLowerCase());
+      if (isHardPickCC) {
+        const m = pickExisting(["Mikael's Blessing"]);
+        if (m) {
+          correctId = m;
+          kind = "cleanse";
+          bullets.push("Support vs hard pick CC → Mikael zachrání carry.");
+        }
+      }
+    }
+
+    // fallback based on enemy tag (NOT universal)
+    if (!correctId) {
+      if (enemyTags.has("Assassin")) correctId = pickExisting(["Zhonya's Hourglass","Guardian Angel","Edge of Night"]);
+      else if (enemyTags.has("Mage")) correctId = pickExisting(["Banshee's Veil","Force of Nature","Spirit Visage"]);
+      else correctId = pickExisting(["Death's Dance","Sterak's Gage","Randuin's Omen","Frozen Heart"]);
+
+      kind = "fallback";
+      bullets.push("Bez tvrdého triggeru → defensivní/outplay item podle hrozby.");
+    }
+
+    // ABSOLUTE fallback: choose a same-tier relevant item of similar gold to enemy's most expensive item
+    if (!correctId) {
+      const target = enemyItems.slice().sort((a,b)=>(b.gold||0)-(a.gold||0))[0];
+      const targetGold = target?.gold || 1200;
+      const pool = items.filter(it => isRelevantItem(it) && Math.abs((it.gold||0) - targetGold) <= 300);
+      correctId = (pool.length ? rand(pool).id : rand(items.filter(isRelevantItem)).id);
+    }
+
+    // build explanation text with actual shown items
+    const phaseText = phase === "late" ? "late game" : (phase === "mid" ? "mid game" : String(phase));
+    const enemyList = enemyItems.map(x=>x.name).join(", ");
+    const playerList = playerItems.map(x=>x.name).join(", ");
+    let why = `Lane: ${laneRaw}, ${phaseText}. Enemy: ${enemyList}. Ty: ${playerList}. `;
+    if (kind === "armorpen") why += "Potřebuješ penetraci, jinak v teamfightech neprorazíš armor.";
+    else if (kind === "antiheal") why += "Potřebuješ GW, jinak enemy sustain přebije výměny.";
+    else if (kind === "antishield") why += "Potřebuješ antishield, jinak damage mizí ve štítech.";
+    else if (kind === "anticrit") why += "Potřebuješ snížit AA/crit DPS a přežít první burst.";
+    else if (kind === "cleanse") why += "Mikael je cílená odpověď na hard CC pick.";
+    else why += "Bez jasného hard-counteru je správně bezpečný defensivní/outplay item proti hlavní hrozbě.";
+
+    return { correctId, why, bullets };
+  }
+
+  // ---- Round generation (strict: no missing items) ----
   function lockChoices(locked) {
     document.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
   }
@@ -613,41 +625,42 @@
     el("reason").textContent = "";
     el("bullets").innerHTML = "";
 
-    for (let tries = 0; tries < 300; tries++) {
-      const scenario = nextScenario();
-      const { laneRaw, rank, phase, enemySlug } = scenario;
+    for (let tries = 0; tries < 600; tries++) {
+      const sc = nextScenario();
+      const { laneRaw, rank, phase, enemySlug } = sc;
 
       if (recentEnemies.includes(enemySlug)) continue;
 
       const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
       if (!enemyRow) continue;
-      const enemyBuild = getCompletedItemsFromRow(enemyRow, 6);
-      if (enemyBuild.length < 3) continue;
 
-      const enemyChamp = champFromSlug(enemySlug);
-      if (!softLaneOk(laneRaw, enemyChamp)) continue;
+      const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
+      if (!enemyItems || enemyItems.length < 2) continue;
 
-      const k = `${laneRaw}::${rank}::${phase}`;
+      const k = key(laneRaw, rank, phase);
       const candidates = (playerCandidates.get(k) || []).filter(s => s !== enemySlug);
-      if (candidates.length === 0) continue;
+      if (!candidates.length) continue;
 
       const playerSlug = pickPlayerSlug(candidates);
       if (recentPlayers.includes(playerSlug)) continue;
 
       const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
       if (!playerRow) continue;
-      const playerBuild = getCompletedItemsFromRow(playerRow, 6);
-      if (playerBuild.length < 3) continue;
 
+      const playerItems = getRelevantItemsFromRow(playerRow, 6);
+      if (!playerItems || playerItems.length < 2) continue;
+
+      const enemyChamp = champFromSlug(enemySlug);
       const playerChamp = champFromSlug(playerSlug);
-      if (!softLaneOk(laneRaw, playerChamp)) continue;
 
-      // UI
+      // STRICT: if any icon is missing URL => reroll (prevents black squares)
+      if (enemyItems.some(it => !it.icon) || playerItems.some(it => !it.icon)) continue;
+
       setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
       setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
 
-      renderIcons("enemyBuildIcons", enemyBuild);
-      renderIcons("playerBuildIcons", playerBuild);
+      renderIcons("enemyBuildIcons", enemyItems);
+      renderIcons("playerBuildIcons", playerItems);
 
       el("enemyBuildInfo").textContent =
         `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top row exportu)`;
@@ -655,16 +668,19 @@
       el("playerBuildInfo").textContent =
         `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
 
-      // analysis + choices
       const analysis = counterForScenario({
         laneRaw, phase,
         enemyChampId: enemyChamp.id,
-        enemyBuild
+        enemyItems,
+        playerItems
       });
 
       const correctId = analysis.correctId;
       const wrongIds = pickWrongChoices(correctId, laneRaw);
       const ids = shuffle([correctId, ...wrongIds]);
+
+      // ensure all 3 are relevant + have icons
+      if (ids.some(id => !isRelevantItem(itemById.get(id)) || !itemById.get(id)?.icon)) continue;
 
       state.correctId = correctId;
       state.correctName = itemById.get(correctId)?.name ?? String(correctId);
@@ -682,11 +698,13 @@
 
       pushRecent(recentEnemies, enemySlug);
       pushRecent(recentPlayers, playerSlug);
+
       return;
     }
 
-    // if everything fails, try again
-    return newRound();
+    // If you reach here, dataset+patch mismatch or mapping broken.
+    el("result").textContent = "Chyba: nelze vygenerovat validní kolo (patch/item mapping).";
+    el("result").className = "result bad";
   }
 
   function onPick(id) {
@@ -718,10 +736,7 @@
     nextBtn.disabled = false;
   }
 
-  newBtn.addEventListener("click", () => {
-    if (awaitingNext) return;
-    newRound();
-  });
+  newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
   nextBtn.addEventListener("click", () => newRound());
 
   await newRound();
