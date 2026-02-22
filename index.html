@@ -143,16 +143,18 @@
   let STREAK = 0;
   let awaitingNext = false;
 
-  // ---- Load patch + DDragon ----
+  // ---- Patch + DDragon ----
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
   const patch = versions[0];
 
-  const champJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/champion.json`).then(r => r.json());
-  const champs = Object.values(champJson.data).map(c => ({
+  const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`).then(r => r.json());
+  const champs = Object.values(champFull.data).map(c => ({
     id: c.id,
     name: c.name,
+    tags: c.tags || [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
+  const champById = new Map(champs.map(c => [c.id.toLowerCase(), c]));
 
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
@@ -169,13 +171,13 @@
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
-  // ---- Load your export ----
+  // ---- Export ----
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
+
+  patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only • Lane normalized + sanity filter`;
 
   const RANKS = ["silver","gold"];
   const PHASES = ["mid","late"];
-
-  patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only • Player+Enemy from export`;
 
   const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const shuffle = (arr) => {
@@ -187,12 +189,17 @@
     return a;
   };
 
+  // ---- Lane normalization ----
+  function normLane(lane) {
+    const x = (lane || "").toLowerCase();
+    if (x === "bot" || x === "bottom") return "adc";
+    if (x === "mid") return "middle";
+    if (x === "jg") return "jungle";
+    return x;
+  }
+
   // ---- Completed item filter ----
-  const EXCLUDE_ITEM_IDS = new Set([
-    2003,2031,2033,2032,
-    3340,3364,3363,2055,
-    2010,2015,2019,2021
-  ]);
+  const EXCLUDE_ITEM_IDS = new Set([2003,2031,2033,2032,3340,3364,3363,2055,2010,2015,2019,2021]);
 
   function isCompletedItem(it) {
     if (!it) return false;
@@ -228,12 +235,10 @@
   function getRiotItemByLoGName(logName) {
     const n = normalizeName(logName);
     if (itemByNormName.has(n)) return itemByNormName.get(n);
-
     for (const [a, b] of NAME_ALIASES.entries()) {
       if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
       if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
     }
-
     for (const [k, v] of itemByNormName.entries()) {
       if (k.includes(n) || n.includes(k)) return v;
     }
@@ -267,9 +272,10 @@
     }
   }
 
-  // ---- Read build rows from export ----
+  // ---- Export readers ----
   function getTopRow(slug, lane, rank, phase) {
-    const rows = logData?.champions?.[slug]?.[lane]?.[rank]?.[phase];
+    const ln = normLane(lane);
+    const rows = logData?.champions?.[slug]?.[ln]?.[rank]?.[phase];
     if (!Array.isArray(rows) || rows.length === 0) return null;
     return rows[0];
   }
@@ -293,22 +299,43 @@
     return found || rand(champs);
   }
 
-  // ---- Scenario pool ----
+  // ---- Sanity filter for lane vs champ tags ----
+  function laneMatchesChampion(lane, champ) {
+    const ln = normLane(lane);
+    const tags = new Set(champ?.tags || []);
+    if (ln === "adc") return tags.has("Marksman");     // Nami/Anivia vyřadí
+    if (ln === "support") return tags.has("Support");  // typicky support
+    return true; // top/jungle/middle bez tvrdého filtru
+  }
+
+  // ---- Build scenario pool ----
   const SCENARIOS = [];
   const playerCandidates = new Map(); // key -> [slug...]
-  function key(lane, rank, phase) { return `${lane}::${rank}::${phase}`; }
+  const key = (lane, rank, phase) => `${normLane(lane)}::${rank}::${phase}`;
 
   const allSlugs = Object.keys(logData.champions || {});
+  const allLanesFromData = new Set();
 
   for (const slug of allSlugs) {
     const lanesObj = logData.champions[slug] || {};
-    for (const lane of Object.keys(lanesObj)) {
+    for (const lane of Object.keys(lanesObj)) allLanesFromData.add(normLane(lane));
+  }
+
+  // candidates per lane/rank/phase
+  for (const slug of allSlugs) {
+    const champ = champFromSlug(slug);
+    const lanesObj = logData.champions[slug] || {};
+    for (const laneRaw of Object.keys(lanesObj)) {
+      const lane = normLane(laneRaw);
+      if (!laneMatchesChampion(lane, champ)) continue;
+
       for (const rank of RANKS) {
         for (const phase of PHASES) {
           const row = getTopRow(slug, lane, rank, phase);
           if (!row) continue;
           const built = getCompletedItemsFromRow(row, 6);
           if (built.length < 3) continue;
+
           const k = key(lane, rank, phase);
           if (!playerCandidates.has(k)) playerCandidates.set(k, []);
           playerCandidates.get(k).push(slug);
@@ -317,13 +344,19 @@
     }
   }
 
+  // scenarios (enemy must also pass sanity)
   for (const slug of allSlugs) {
+    const champ = champFromSlug(slug);
     const lanesObj = logData.champions[slug] || {};
-    for (const lane of Object.keys(lanesObj)) {
+    for (const laneRaw of Object.keys(lanesObj)) {
+      const lane = normLane(laneRaw);
+      if (!laneMatchesChampion(lane, champ)) continue;
+
       for (const rank of RANKS) {
         for (const phase of PHASES) {
           const row = getTopRow(slug, lane, rank, phase);
           if (!row) continue;
+
           const enemyBuild = getCompletedItemsFromRow(row, 6);
           if (enemyBuild.length < 3) continue;
 
@@ -338,14 +371,15 @@
   }
 
   if (SCENARIOS.length === 0) {
-    throw new Error("Nenalezen žádný scénář: zkontroluj data/log_builds.json.");
+    throw new Error("Žádné scénáře po filtrech: zkontroluj lane klíče v data/log_builds.json.");
   }
 
-  // ---- Counter logic (Mikael only when lane=support + hard CC pick champ) ----
+  // ---- Counter logic ----
   const HARD_PICK_CC = new Set(["leona","nautilus","blitzcrank","thresh","rell","morgana"]);
 
   function counterForScenario({ lane, phase, enemyChampId, enemyBuild, playerBuild }) {
     const enemyNames = enemyBuild.map(x => x.name.toLowerCase()).join(" | ");
+
     const armorStack = enemyBuild.filter(it => (it.tags||[]).includes("Armor") || (it.tags||[]).includes("Health")).length >= 3;
     const looksCrit = ["infinity edge","rapid firecannon","phantom dancer","statikk","navori","the collector","bloodthirster"].some(s => enemyNames.includes(s));
     const looksHeal = ["riftmaker","bloodthirster","ravenous","vamp","omnivamp"].some(s => enemyNames.includes(s));
@@ -393,10 +427,10 @@
       bullets.push("V late 5v5 bez pen neprosekáš frontu.");
     }
 
-    // Mikael ONLY support lane + hard pick CC
+    // Mikael only support lane + hard pick CC
     if (!correctId) {
       const isHardPickCC = HARD_PICK_CC.has(enemyChampId.toLowerCase());
-      if (lane === "support" && isHardPickCC) {
+      if (normLane(lane) === "support" && isHardPickCC) {
         const m = pick(["Mikael's Blessing"]);
         if (m) {
           kind = "cleanse";
@@ -407,7 +441,6 @@
       }
     }
 
-    // fallback (NO Mikael here)
     if (!correctId) {
       kind = "fallback";
       correctId = pick(["Guardian Angel","Zhonya's Hourglass","Banshee's Veil","Edge of Night","Locket of the Iron Solari","Redemption"]);
@@ -437,9 +470,8 @@
     const correct = itemById.get(correctId);
     let poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
 
-    // remove Mikael from wrong options outside support
     const mikaelId = riotItemIdByName("Mikael's Blessing");
-    if (lane !== "support" && mikaelId) poolAll = poolAll.filter(i => i.id !== mikaelId);
+    if (normLane(lane) !== "support" && mikaelId) poolAll = poolAll.filter(i => i.id !== mikaelId);
 
     const correctTags = new Set(correct?.tags ?? []);
     const scored = poolAll.map(i => {
@@ -500,7 +532,8 @@
 
     const enemyChamp = champFromSlug(enemySlug);
 
-    const candidates = (playerCandidates.get(`${lane}::${rank}::${phase}`) || []).filter(s => s !== enemySlug);
+    const k = `${normLane(lane)}::${rank}::${phase}`;
+    const candidates = (playerCandidates.get(k) || []).filter(s => s !== enemySlug);
     if (candidates.length === 0) return newRound();
 
     const playerSlug = rand(candidates);
@@ -510,8 +543,13 @@
 
     const playerChamp = champFromSlug(playerSlug);
 
-    setChamp("enemy", enemyChamp, `Lane: ${lane} • Rank: ${rank} • Fáze: ${phase}`);
-    setChamp("player", playerChamp, `Lane: ${lane} • Rank: ${rank} • Fáze: ${phase}`);
+    // sanity again (should already pass)
+    if (!laneMatchesChampion(normLane(lane), enemyChamp) || !laneMatchesChampion(normLane(lane), playerChamp)) {
+      return newRound();
+    }
+
+    setChamp("enemy", enemyChamp, `Lane: ${normLane(lane)} • Rank: ${rank} • Fáze: ${phase}`);
+    setChamp("player", playerChamp, `Lane: ${normLane(lane)} • Rank: ${rank} • Fáze: ${phase}`);
 
     renderIcons("enemyBuildIcons", enemyBuild);
     renderIcons("playerBuildIcons", playerBuild);
@@ -523,7 +561,7 @@
       `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
 
     const analysis = counterForScenario({
-      lane, phase,
+      lane: normLane(lane), phase,
       enemyChampId: enemyChamp.id,
       enemyBuild,
       playerBuild
