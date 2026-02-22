@@ -1,4 +1,4 @@
-const CACHE = "lol-counter-quiz-v15";
+const CACHE = "lol-counter-quiz-v16";
 const ASSETS = [
   "./",
   "./index.html",
@@ -46,6 +46,7 @@ self.addEventListener("fetch", (event) => {
     }))
   );
 });
+
 
 
 
