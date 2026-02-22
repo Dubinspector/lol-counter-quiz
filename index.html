@@ -174,7 +174,7 @@
       <div id="multiChoices"></div>
 
       <div class="bar" style="margin-top:12px;">
-        <button class="primary" id="okBtn">OK</button>
+        <button class="primary" id="okBtn" disabled>OK</button>
       </div>
 
       <div class="result" id="result"></div>
@@ -196,7 +196,6 @@
   Fan-made projekt. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon. Dataset: Riot Match-V5 timeline (offline export).
 </footer>
 
-<!-- Modal -->
 <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); padding:14px; z-index:9999;">
   <div style="max-width:720px; margin:0 auto; background:#111; border:1px solid #222; border-radius:16px; padding:14px;">
     <div style="display:flex; gap:10px; align-items:center; justify-content:space-between;">
@@ -214,18 +213,17 @@
   }
 
   const el = (id) => document.getElementById(id);
+  const makeOpt = (val, txt) => { const o=document.createElement("option"); o.value=val; o.textContent=txt; return o; };
 
   const patchMeta = el("patchMeta");
   const scoreEl = el("score");
   const streakEl = el("streak");
   const newBtn = el("newBtn");
   const nextBtn = el("nextBtn");
-
   const laneSel = el("laneSel");
   const champSel = el("champSel");
   const lockChampEl = el("lockChamp");
   const lockLaneEl = el("lockLane");
-
   const okBtn = el("okBtn");
   const multiChoicesEl = el("multiChoices");
 
@@ -250,24 +248,25 @@
     return a;
   };
 
-  // dataset
-  const logData = await fetch("./data/log_builds.json").then(r => r.json());
+  // --- load dataset (must exist) ---
+  const logData = await fetch("./data/log_builds.json").then(r => {
+    if (!r.ok) throw new Error("Nelze načíst data/log_builds.json (404/500).");
+    return r.json();
+  });
 
   // patch pin
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
-  const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
+  const datasetPatch = (logData?.patch || logData?.meta?.patch || "").toString().trim();
   const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
 
-  // ddragon champ list
+  // champs
   const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`).then(r => r.json());
   const champs = Object.values(champFull.data).map(c => ({
-    id: c.id,
-    name: c.name,
-    tags: c.tags || [],
+    id: c.id, name: c.name, tags: c.tags || [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
 
-  // ddragon items raw + mapped
+  // items
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
   const items = Object.entries(rawItems).map(([id, it]) => ({
@@ -306,41 +305,38 @@
     const text = tmp.textContent || "";
     return text.replace(/\n{3,}/g, "\n\n").trim();
   }
-
   function openItemModal(it) {
-    if (!it) return;
     const raw = rawItems[String(it.id)];
     const desc = stripHtmlKeepLinebreaks(raw?.description || "");
     modalTitle.textContent = it.name;
     modalBody.textContent = desc || "Popis není dostupný.";
     modal.style.display = "block";
   }
-
   async function fetchChampDetail(champId) {
     const url = `https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/champion/${champId}.json`;
     return fetch(url).then(r=>r.json()).catch(()=>null);
   }
-
   async function openChampSkillsModal(champ) {
     const det = await fetchChampDetail(champ.id);
     const data = det?.data?.[champ.id];
     if (!data) return;
-
     const parts = [];
-    parts.push(`${data.name} – skilly`);
-    parts.push("");
     for (const sp of (data.spells||[])) {
       parts.push(sp.name);
       parts.push(stripHtmlKeepLinebreaks(sp.tooltip || sp.description || ""));
       parts.push("");
     }
-
     modalTitle.textContent = `${data.name} – skilly`;
     modalBody.textContent = parts.join("\n");
     modal.style.display = "block";
   }
 
-  // UI helpers
+  function champFromSlug(slug) {
+    const norm = (slug || "").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const found = champs.find(c => c.id.toLowerCase().replace(/[^a-z0-9]/g,"") === norm);
+    return found || rand(champs);
+  }
+
   function setChamp(side, champ, extra) {
     const img = el(`${side}Icon`);
     img.src = champ.icon;
@@ -365,12 +361,6 @@
     }
   }
 
-  function champFromSlug(slug) {
-    const norm = (slug || "").toLowerCase().replace(/[^a-z0-9]/g,"");
-    const found = champs.find(c => c.id.toLowerCase().replace(/[^a-z0-9]/g,"") === norm);
-    return found || rand(champs);
-  }
-
   function itemIdSet(list) {
     const s = new Set();
     for (const it of (list || [])) s.add(it.id);
@@ -384,7 +374,7 @@
     return 10;
   }
 
-  // dataset access
+  // dataset access (Riot-built dataset uses ids, not names)
   function getRows(slug, laneRaw, rank, phase) {
     const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -438,7 +428,6 @@
       const seenThisRow = new Set();
 
       for (const it of itemsList) {
-        if (!isRelevantItem(it)) continue;
         weightByItemId.set(it.id, (weightByItemId.get(it.id) || 0) + w);
         if (!seenThisRow.has(it.id)) {
           seenThisRow.add(it.id);
@@ -460,7 +449,6 @@
     return pool;
   }
 
-  // tier match
   function tierBucket(it) {
     const g = it.gold || 0;
     const d = it.depth || 0;
@@ -502,7 +490,8 @@
     if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
 
     candidates = shuffle(candidates);
-    return candidates.slice(0,2).map(x=>x.id).length === 2 ? candidates.slice(0,2).map(x=>x.id) : null;
+    const out = candidates.slice(0,2).map(x=>x.id);
+    return out.length === 2 ? out : null;
   }
 
   // empirical stats
@@ -524,6 +513,7 @@
     return best;
   }
 
+  // heuristic fallback (only if no empirical)
   function counterScoreHeuristic(enemyItem, candidateItem) {
     const en = (enemyItem.name || "").toLowerCase();
     const cn = (candidateItem.name || "").toLowerCase();
@@ -549,7 +539,7 @@
     return logData?.skillOrders?.[playerSlug]?.[laneRaw]?.[rank]?.[phase] || null;
   }
 
-  // scenario index
+  // build scenarios
   const allSlugs = Object.keys(logData.champions || {});
   const scenariosByPhase = new Map();
   const scenariosByLane = new Map();
@@ -566,7 +556,7 @@
           const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
           if (!enemyRow) continue;
           const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-          if (!enemyItems || enemyItems.length < 1) continue;
+          if (!enemyItems.length) continue;
 
           const sc = { laneRaw, rank, phase, enemySlug };
           const k = `${laneRaw}::${rank}::${phase}`;
@@ -585,7 +575,8 @@
       }
     }
   }
-  if (totalScenarios === 0) throw new Error("Žádné scénáře v datasetu po filtrech.");
+
+  if (totalScenarios === 0) throw new Error("Žádné scénáře v datasetu (po filtrech).");
 
   const phaseLines = [...scenariosByPhase.entries()].sort((a,b)=>b[1].length-a[1].length).map(([p,a])=>`${p}:${a.length}`);
   const laneLines = [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length).map(([l,a])=>`${l}:${a.length}`);
@@ -596,37 +587,20 @@
     `Fáze: ${phaseLines.join(" | ")}\n` +
     `Lane: ${laneLines.join(" | ")}`;
 
-  // selectors
-  const availableLanes = [...scenariosByLane.keys()].sort((a,b)=>a.localeCompare(b));
-  const makeOpt = (val, txt) => {
-    const o = document.createElement("option");
-    o.value = val;
-    o.textContent = txt;
-    return o;
-  };
-
+  // fill selects (ONE time)
+  const scenarioLanes = [...scenariosByLane.keys()].sort((a,b)=>a.localeCompare(b));
   laneSel.innerHTML = "";
   laneSel.appendChild(makeOpt("__any__", "Náhodně"));
-  for (const l of availableLanes) laneSel.appendChild(makeOpt(l, l));
+  for (const l of scenarioLanes) laneSel.appendChild(makeOpt(l, l));
 
-  function populateChampSelect() {
-    const sorted = allSlugs
-      .map(slug => {
-        const c = champFromSlug(slug);
-        return { slug, name: c?.name || slug };
-      })
-      .sort((a,b)=>a.name.localeCompare(b.name));
+  champSel.innerHTML = "";
+  champSel.appendChild(makeOpt("__any__", "Náhodně"));
+  const champList = allSlugs
+    .map(slug => ({ slug, name: champFromSlug(slug)?.name || slug }))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  for (const c of champList) champSel.appendChild(makeOpt(c.slug, c.name));
 
-    const prev = champSel.value;
-    champSel.innerHTML = "";
-    champSel.appendChild(makeOpt("__any__", "Náhodně"));
-    for (const x of sorted) champSel.appendChild(makeOpt(x.slug, x.name));
-    if (prev && [...champSel.options].some(o=>o.value===prev)) champSel.value = prev;
-    else champSel.value = "__any__";
-  }
-  populateChampSelect();
-
-  // fair phase
+  // fair phase rotation
   const phaseList = [...scenariosByPhase.keys()];
   const resetBag = () => shuffle(phaseList);
   let phaseBag = resetBag();
@@ -668,7 +642,6 @@
   }
 
   let state = { why: "", bullets: [] };
-
   function renderAnalysis() {
     el("analysisBox").style.display = "block";
     el("reason").textContent = state.why;
@@ -737,7 +710,6 @@
           row.querySelectorAll("button.choice").forEach(x => x.classList.remove("choiceSelected"));
           btn.classList.add("choiceSelected");
         };
-        btn.oncontextmenu = (e) => { e.preventDefault(); openItemModal(it); };
         btn.ondblclick = () => openItemModal(it);
         row.appendChild(btn);
       }
@@ -748,14 +720,8 @@
   }
 
   let cur = {
-    laneRaw: null,
-    rank: null,
-    phase: null,
-    enemySlug: null,
-    playerSlug: null,
-    enemyItems: [],
-    playerItems: [],
-    correctByEnemyItemId: new Map()
+    laneRaw: null, rank: null, phase: null, enemySlug: null, playerSlug: null,
+    enemyItems: [], playerItems: [], correctByEnemyItemId: new Map()
   };
 
   async function newRound() {
@@ -763,8 +729,8 @@
     nextBtn.style.display = "none";
     nextBtn.disabled = true;
     newBtn.disabled = false;
-    okBtn.disabled = true;
 
+    okBtn.disabled = true;
     el("result").textContent = "";
     el("result").className = "result";
     el("analysisBox").style.display = "none";
@@ -790,7 +756,7 @@
       const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
       if (!enemyRow) continue;
       const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-      if (enemyItems.length < 1) continue;
+      if (!enemyItems.length) continue;
 
       let pickedPlayerSlug = lockedPlayerSlug || null;
       if (!pickedPlayerSlug) {
@@ -807,7 +773,7 @@
       const playerRow = getTopRow(pickedPlayerSlug, laneRaw, rank, phase);
       if (!playerRow) continue;
       const playerItems = getRelevantItemsFromRow(playerRow, 6);
-      if (playerItems.length < 1) continue;
+      if (!playerItems.length) continue;
 
       const owned = itemIdSet(playerItems);
 
@@ -817,7 +783,7 @@
       if (poolItems.length < MIN_POOL_SIZE) continue;
 
       const quizEnemyItems = pickEnemyItemsForQuiz(enemyItems);
-      if (quizEnemyItems.length < 1) continue;
+      if (!quizEnemyItems.length) continue;
 
       const choicesByEnemy = new Map();
       const correctByEnemy = new Map();
@@ -830,14 +796,14 @@
         if (bestEmp) {
           correctId = bestEmp.id;
         } else {
-          let best = null;
-          let bestScore = -1e9;
+          let best = null, bestScore = -1e9;
           for (const it of poolItems) {
             const s = counterScoreHeuristic(eIt, it);
             if (s > bestScore) { bestScore = s; best = it; }
           }
           correctId = best?.id || null;
         }
+
         if (!correctId) { correctByEnemy.clear(); break; }
 
         const wrongIds = pickTwoDistractorsFromPool(poolItems, correctId);
@@ -862,11 +828,8 @@
       renderIcons("enemyBuildIcons", enemyItems);
       renderIcons("playerBuildIcons", playerItems);
 
-      el("enemyBuildInfo").textContent =
-        `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top build)`;
-
-      el("playerBuildInfo").textContent =
-        `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top build)`;
+      el("enemyBuildInfo").textContent = `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top build)`;
+      el("playerBuildInfo").textContent = `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top build)`;
 
       cur = { laneRaw, rank, phase, enemySlug, playerSlug: pickedPlayerSlug, enemyItems, playerItems, correctByEnemyItemId: correctByEnemy };
 
@@ -912,11 +875,7 @@
     bullets.push(`Ty: ${cur.playerSlug} vs Enemy: ${cur.enemySlug}.`);
 
     const sr = getAvgSkillRanks(cur.playerSlug, cur.laneRaw, cur.rank, cur.phase);
-    if (sr) {
-      bullets.push(`Skill ranks (avg, n=${sr.n}): Q=${sr.avg.q}, W=${sr.avg.w}, E=${sr.avg.e}, R=${sr.avg.r} (lvl≈${sr.lvl}).`);
-    } else {
-      bullets.push(`Skill ranks: chybí data v datasetu pro tento bucket.`);
-    }
+    if (sr) bullets.push(`Skill ranks (avg, n=${sr.n}): Q=${sr.avg.q}, W=${sr.avg.w}, E=${sr.avg.e}, R=${sr.avg.r} (lvl≈${sr.lvl}).`);
 
     for (const eIt of multiState.enemyItemsPicked) {
       const pickedId = multiState.picksByEnemyItemId.get(eIt.id);
@@ -928,12 +887,8 @@
       const pickedStats = getEmpiricalItemStats(cur.playerSlug, cur.laneRaw, cur.rank, cur.phase, cur.enemySlug, pickedId);
       const correctStats = getEmpiricalItemStats(cur.playerSlug, cur.laneRaw, cur.rank, cur.phase, cur.enemySlug, correctId);
 
-      const pickedLine = pickedStats
-        ? `WR ${pickedStats.winRate}% (n=${pickedStats.games}), dmg≈${pickedStats.estDmgWindow} v okně`
-        : `bez dost dat`;
-      const correctLine = correctStats
-        ? `WR ${correctStats.winRate}% (n=${correctStats.games}), dmg≈${correctStats.estDmgWindow} v okně`
-        : `bez dost dat (fallback heuristic)`;
+      const pickedLine = pickedStats ? `WR ${pickedStats.winRate}% (n=${pickedStats.games}), dmg≈${pickedStats.estDmgWindow}` : `bez dat`;
+      const correctLine = correctStats ? `WR ${correctStats.winRate}% (n=${correctStats.games}), dmg≈${correctStats.estDmgWindow}` : `bez dat (fallback)`;
 
       const ok = pickedId === correctId;
       if (ok) correctCount++;
@@ -955,8 +910,7 @@
     streakEl.textContent = String(STREAK);
 
     state.why =
-      `Správnost je z ground truth datasetu: (tvůj champ + lane + rank + phase + enemy champ) → porovnání winrate a damage-to-champions delta (1 min okno, přepočet na ${timeSec}s).` +
-      ` Tooltipy itemů/skillů jsou z Data Dragon. Skill ranks jsou empiricky z timeline eventů.`;
+      `Empirická evaluace z datasetu: (tvůj champ + lane + rank + phase + enemy champ) → winrate + damage delta (přepočet na ${timeSec}s).`;
 
     state.bullets = bullets;
     renderAnalysis();
@@ -965,38 +919,25 @@
     nextBtn.disabled = false;
   });
 
-  // init lane/champ selectors
-  const availableLanes = [...new Set(Object.keys(Object.assign({}, ...(Object.values(logData.champions||{}).map(o=>o||{})))))]
-  // previous line is not reliable; keep lanes from scenarios
-  const scenarioLanes = [...new Set((() => {
-    const s = [];
-    for (const slug of Object.keys(logData.champions||{})) {
-      for (const l of Object.keys(logData.champions[slug]||{})) s.push(l);
+  function renderAnalysis() {
+    el("analysisBox").style.display = "block";
+    el("reason").textContent = state.why;
+    const ul = el("bullets");
+    ul.innerHTML = "";
+    for (const b of state.bullets || []) {
+      const li = document.createElement("li");
+      li.textContent = b;
+      ul.appendChild(li);
     }
-    return s;
-  })())].sort((a,b)=>a.localeCompare(b));
-
-  laneSel.innerHTML = "";
-  laneSel.appendChild(makeOpt("__any__", "Náhodně"));
-  for (const l of scenarioLanes) laneSel.appendChild(makeOpt(l, l));
-
-  // champ list from dataset
-  const allSlugs = Object.keys(logData.champions||{});
-  champSel.innerHTML = "";
-  champSel.appendChild(makeOpt("__any__", "Náhodně"));
-  for (const slug of allSlugs
-    .map(slug => ({ slug, name: champFromSlug(slug)?.name || slug }))
-    .sort((a,b)=>a.name.localeCompare(b.name))) {
-    champSel.appendChild(makeOpt(slug.slug, slug.name));
   }
+
+  newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
+  nextBtn.addEventListener("click", () => newRound());
 
   laneSel.addEventListener("change", () => { if (!awaitingNext) newRound(); });
   champSel.addEventListener("change", () => { if (!awaitingNext) newRound(); });
   lockChampEl.addEventListener("change", () => { if (!awaitingNext) newRound(); });
   lockLaneEl.addEventListener("change", () => { if (!awaitingNext) newRound(); });
-
-  newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
-  nextBtn.addEventListener("click", () => newRound());
 
   await newRound();
 })();
