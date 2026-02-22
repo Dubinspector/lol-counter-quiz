@@ -103,7 +103,7 @@
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3) – stejné “tier” (gold/depth)</div>
+      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3) – pouze z poolu tvého champa (export)</div>
       <div class="choices" id="choices"></div>
 
       <div class="result" id="result"></div>
@@ -152,17 +152,34 @@
     return a;
   };
 
-  // ---- Load export FIRST (for patch pin) ----
+  // ---------- Load export first ----------
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
-  // dataset patch pin (ground truth if present)
-  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
-  const datasetPatch =
-    (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
+  // phases: use all phases present in export (ground truth)
+  const EXPORT_PHASES = (() => {
+    // try detect from first existing entry
+    for (const champSlug of Object.keys(logData.champions || {})) {
+      const lanes = logData.champions[champSlug] || {};
+      for (const laneRaw of Object.keys(lanes)) {
+        const ranks = lanes[laneRaw] || {};
+        for (const rank of Object.keys(ranks)) {
+          const phases = ranks[rank] || {};
+          const keys = Object.keys(phases);
+          if (keys.length) return keys;
+        }
+      }
+    }
+    return ["early","mid","late"];
+  })();
 
+  const RANKS = ["silver","gold"];
+
+  // patch pin
+  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
+  const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
   const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
 
-  // ---- DDragon ----
+  // ---------- DDragon ----------
   const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`).then(r => r.json());
   const champs = Object.values(champFull.data).map(c => ({
     id: c.id,
@@ -183,23 +200,17 @@
     depth: it.depth ?? 0,
     into: it.into ?? [],
     requiredChampion: it.requiredChampion ?? null,
-    inStore: it.inStore !== false,
-    maps: it.maps ?? null
+    inStore: it.inStore !== false
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
-  // ---- CONFIG ----
-  const RANKS = ["silver","gold"];
-  const PHASES = ["mid","late"];
-
-  // ---- Hard exclusions: NEVER show ----
-  // Consumables, trinkets, wards, elixirs, biscuits, etc.
+  // ---------- Item relevance (no potions/wards/trinkets) ----------
   const HARD_BANNED_ITEM_IDS = new Set([
-    2003, 2031, 2033, 2032, // potions/biscuits
-    2055,                   // control ward
-    3340, 3363, 3364,       // trinkets
-    2010, 2015, 2019, 2021, // biscuits/refillables etc (varies by patch)
-    2052, 2051, 2138, 2139, 2140 // other consumables/elixirs (patch dependent; safe ban)
+    2003,2031,2033,2032, // potions/biscuits
+    2055,                 // control ward
+    3340,3363,3364,       // trinkets
+    2010,2015,2019,2021,  // refillables/biscuits etc
+    2051,2052,2138,2139,2140 // consumables/elixirs (varies)
   ]);
 
   function isRelevantItem(it) {
@@ -209,19 +220,19 @@
     if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
     if ((it.gold ?? 0) <= 0) return false;
 
-    // tag-based bans
     const tags = new Set(it.tags || []);
     if (tags.has("Consumable")) return false;
     if (tags.has("Trinket")) return false;
 
-    // ward items sometimes lack tags; catch by name too
     const n = (it.name || "").toLowerCase();
     if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
 
-    return true;
+    return !!it.icon;
   }
 
-  // ---- LoG -> Riot item mapping ----
+  const RELEVANT_ITEMS = items.filter(isRelevantItem);
+
+  // ---------- LoG -> Riot item mapping ----------
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -247,7 +258,6 @@
       if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
     }
 
-    // fuzzy
     for (const [k, v] of itemByNormName.entries()) {
       if (k.includes(n) || n.includes(k)) return v;
     }
@@ -258,7 +268,7 @@
     return itemByNormName.get(normalizeName(name))?.id ?? null;
   }
 
-  // ---- UI helpers ----
+  // ---------- UI helpers ----------
   function setChamp(side, champ, extra) {
     el(`${side}Icon`).src = champ.icon;
     el(`${side}Icon`).alt = champ.name;
@@ -275,7 +285,7 @@
       img.alt = it.name;
       img.title = it.name;
       img.src = it.icon + `?v=${Date.now()}`;
-      img.onerror = () => { img.remove(); }; // we never allow rounds with missing icons (validated earlier)
+      img.onerror = () => img.remove();
       wrap.appendChild(img);
     }
   }
@@ -286,117 +296,325 @@
     return found || rand(champs);
   }
 
-  // ---- Export readers (laneRaw is EXACT key from export) ----
-  function getTopRow(slug, laneRaw, rank, phase) {
+  // ---------- Export access ----------
+  function getRows(slug, laneRaw, rank, phase) {
     const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
     if (!Array.isArray(rows) || rows.length === 0) return null;
-    return rows[0];
+    return rows;
   }
 
-  // Extract a "visible build" from a row:
-  // - map names to riot items
-  // - drop banned/irrelevant
-  // - require icons exist (we validate by having icon URL)
   function getRelevantItemsFromRow(row, max = 6) {
     const out = [];
     for (const x of (row?.items || [])) {
       const mapped = getRiotItemByLoGName(x?.name);
-      if (!mapped) return null; // strict: if any shown item can't map, reject this row
+      if (!mapped) continue;
       const it = itemById.get(mapped.id);
       if (!isRelevantItem(it)) continue;
-      if (!it.icon) return null;
       out.push(it);
       if (out.length >= max) break;
     }
     return out;
   }
 
-  // ---- Scenario pool built ONLY from export (no guessing) ----
-  const allSlugs = Object.keys(logData.champions || {});
-  const playerCandidates = new Map(); // key -> [slug...]
-  const key = (laneRaw, rank, phase) => `${laneRaw}::${rank}::${phase}`;
+  // ---------- NEW: getPlayerPoolFromExport ----------
+  // strict: pool only from top N rows of player's champ for exact lane/rank/phase.
+  const POOL_TOP_N_ROWS = 12; // adjust 8-15; default 12
 
-  // Collect lane keys exactly as export uses them
-  const lanesInExport = new Set();
-  for (const slug of allSlugs) {
-    for (const laneRaw of Object.keys(logData.champions[slug] || {})) lanesInExport.add(laneRaw);
-  }
+  function getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase) {
+    const rows = getRows(playerSlug, laneRaw, rank, phase);
+    if (!rows) return null;
 
-  // Build candidate lists
-  for (const slug of allSlugs) {
-    for (const laneRaw of Object.keys(logData.champions[slug] || {})) {
-      for (const rank of RANKS) for (const phase of PHASES) {
-        const row = getTopRow(slug, laneRaw, rank, phase);
-        if (!row) continue;
+    const uniq = new Map(); // id -> item
+    const lim = Math.min(POOL_TOP_N_ROWS, rows.length);
 
-        const itemsList = getRelevantItemsFromRow(row, 6);
-        if (!itemsList || itemsList.length < 2) continue; // allow early builds too (2+)
-
-        const k = key(laneRaw, rank, phase);
-        if (!playerCandidates.has(k)) playerCandidates.set(k, []);
-        playerCandidates.get(k).push(slug);
+    for (let i = 0; i < lim; i++) {
+      const row = rows[i];
+      const itemsList = getRelevantItemsFromRow(row, 6);
+      for (const it of (itemsList || [])) {
+        if (!uniq.has(it.id)) uniq.set(it.id, it);
       }
     }
+
+    const pool = [...uniq.values()];
+    return pool;
   }
 
-  // Scenarios grouped by laneRaw (balanced sampling)
-  const scenariosByLane = new Map();
+  // ---------- Tier matching ----------
+  function tierBucket(it) {
+    const g = it.gold || 0;
+    const d = it.depth || 0;
+
+    let band = 0;
+    if (g <= 500) band = 0;
+    else if (g <= 900) band = 1;
+    else if (g <= 1400) band = 2;
+    else if (g <= 2000) band = 3;
+    else if (g <= 2600) band = 4;
+    else if (g <= 3200) band = 5;
+    else band = 6;
+
+    let depthBand = 0;
+    if (d <= 1) depthBand = 0;
+    else if (d === 2) depthBand = 1;
+    else if (d === 3) depthBand = 2;
+    else depthBand = 3;
+
+    return `${band}::${depthBand}`;
+  }
+
+  function pickTwoDistractorsFromPool(poolItems, correctId) {
+    const correct = itemById.get(correctId);
+    const ctier = tierBucket(correct);
+    const cgold = correct.gold || 0;
+    const cdepth = correct.depth || 0;
+
+    // prefer: same tier from pool
+    let candidates = poolItems.filter(it => it.id !== correctId && tierBucket(it) === ctier);
+
+    // if too few, widen by gold/depth closeness within pool
+    if (candidates.length < 4) {
+      candidates = poolItems.filter(it =>
+        it.id !== correctId &&
+        Math.abs((it.gold||0) - cgold) <= 600 &&
+        Math.abs((it.depth||0) - cdepth) <= 1
+      );
+    }
+
+    // if still too few, just any from pool
+    if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
+
+    candidates = shuffle(candidates);
+
+    const out = [];
+    for (const it of candidates) {
+      if (out.length >= 2) break;
+      out.push(it.id);
+    }
+    return out.length === 2 ? out : null;
+  }
+
+  // ---------- Counter scoring ----------
+  // Score a candidate item (from player's pool) against enemy items in this scenario.
+  // Pure heuristic but bounded to "what players really buy" because candidates come from export pool.
+  function buildEnemySignals(enemyItems) {
+    const names = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
+    const tags = new Set();
+    for (const it of enemyItems) for (const t of (it.tags||[])) tags.add(t);
+
+    const armorCount = enemyItems.filter(it => (it.tags||[]).includes("Armor")).length;
+    const mrCount = enemyItems.filter(it => (it.tags||[]).includes("SpellBlock") || (it.tags||[]).includes("MagicResist")).length;
+
+    const hasLifesteal = names.includes("bloodthirst") || names.includes("ravenous") || names.includes("blade of the ruined king") || names.includes("riftmaker") || names.includes("vamp");
+    const hasShields = names.includes("sterak") || names.includes("seraph") || names.includes("immortal shieldbow");
+    const hasCrit = names.includes("infinity edge") || names.includes("phantom dancer") || names.includes("rapid firecannon") || names.includes("statikk") || names.includes("navori") || names.includes("the collector");
+    const hasOnHitAA = names.includes("guinsoo") || names.includes("blade of the ruined king") || names.includes("kraken") || names.includes("terminus");
+
+    return {
+      names,
+      tags,
+      armorHeavy: armorCount >= 2,
+      mrHeavy: mrCount >= 2,
+      hasLifesteal,
+      hasShields,
+      hasCrit,
+      hasOnHitAA
+    };
+  }
+
+  const GW_IDS = new Set([
+    riotItemIdByName("Morellonomicon"),
+    riotItemIdByName("Mortal Reminder"),
+    riotItemIdByName("Thornmail"),
+    riotItemIdByName("Chempunk Chainsword")
+  ].filter(Boolean));
+
+  const ARMOR_PEN_IDS = new Set([
+    riotItemIdByName("Lord Dominik's Regards"),
+    riotItemIdByName("Serylda's Grudge"),
+    riotItemIdByName("Black Cleaver"),
+    riotItemIdByName("Terminus")
+  ].filter(Boolean));
+
+  const ANTI_SHIELD_IDS = new Set([
+    riotItemIdByName("Serpent's Fang")
+  ].filter(Boolean));
+
+  const ANTI_CRIT_IDS = new Set([
+    riotItemIdByName("Randuin's Omen"),
+    riotItemIdByName("Frozen Heart")
+  ].filter(Boolean));
+
+  const ANTI_AP_BURST_IDS = new Set([
+    riotItemIdByName("Banshee's Veil"),
+    riotItemIdByName("Maw of Malmortius"),
+    riotItemIdByName("Hexdrinker"),
+    riotItemIdByName("Force of Nature")
+  ].filter(Boolean));
+
+  const ANTI_AD_BURST_IDS = new Set([
+    riotItemIdByName("Zhonya's Hourglass"),
+    riotItemIdByName("Guardian Angel"),
+    riotItemIdByName("Edge of Night")
+  ].filter(Boolean));
+
+  function laneKind(laneRaw) {
+    const x = (laneRaw || "").toLowerCase().trim();
+    if (x.includes("support") || x === "supp") return "SUPPORT";
+    if (x === "adc" || x.includes("bot") || x.includes("bottom")) return "ADC";
+    if (x.includes("jungle") || x === "jg") return "JUNGLE";
+    if (x.includes("mid") || x.includes("middle")) return "MID";
+    if (x.includes("top")) return "TOP";
+    return "UNKNOWN";
+  }
+
+  function counterScore(enemyItems, candidateItem, playerChamp, laneRaw, phase) {
+    const sig = buildEnemySignals(enemyItems);
+    const id = candidateItem.id;
+    const t = new Set(candidateItem.tags || []);
+    const kind = laneKind(laneRaw);
+
+    let score = 0;
+
+    // keep "meaning/tier": prefer items whose gold is not wildly off vs average enemy item gold
+    const avgEnemyGold = enemyItems.reduce((a,b)=>a+(b.gold||0),0) / Math.max(1, enemyItems.length);
+    score -= Math.abs((candidateItem.gold||0) - avgEnemyGold) / 350; // gentle
+
+    // phase preference: early prefers cheaper depth<=2; late prefers higher gold
+    if (phase && phase.toLowerCase().includes("early")) {
+      if ((candidateItem.gold||0) <= 1200) score += 1.5;
+      if ((candidateItem.depth||0) <= 2) score += 1.0;
+    }
+    if (phase && phase.toLowerCase().includes("late")) {
+      if ((candidateItem.gold||0) >= 2600) score += 1.2;
+      if ((candidateItem.depth||0) >= 3) score += 0.8;
+    }
+
+    // hard counters driven by enemy items
+    if (sig.hasLifesteal && GW_IDS.has(id)) score += 6.0;
+    if (sig.armorHeavy && ARMOR_PEN_IDS.has(id)) score += 5.0;
+    if (sig.hasShields && ANTI_SHIELD_IDS.has(id)) score += 5.0;
+    if (sig.hasCrit && ANTI_CRIT_IDS.has(id)) score += 4.5;
+
+    // generic defensive vs enemy tags (soft)
+    // if enemy looks crit/onhit -> armor/AA mitigation is good
+    if ((sig.hasCrit || sig.hasOnHitAA) && (t.has("Armor") || t.has("Health"))) score += 1.2;
+
+    // if enemy seems AP-heavy by MR items -> avoid buying MR (low value), prefer pen/tempo; but we can't infer damage type reliably.
+    // Use only mild signals.
+    if (sig.mrHeavy && (t.has("MagicResist") || t.has("SpellBlock"))) score -= 0.6;
+
+    // lane/role sanity (prevents Mikael/locket being good for ADC etc IF in pool)
+    const isSupportish = candidateItem.name.toLowerCase().includes("mikael") || candidateItem.name.toLowerCase().includes("locket") || candidateItem.name.toLowerCase().includes("redemption");
+    if (isSupportish && kind !== "SUPPORT") score -= 5.0;
+
+    // champion class nudges
+    const pTags = new Set(playerChamp?.tags || []);
+    if (pTags.has("Marksman") && (t.has("CriticalStrike") || t.has("AttackSpeed") || t.has("Damage"))) score += 0.6;
+    if (pTags.has("Mage") && (t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction"))) score += 0.6;
+    if (pTags.has("Tank") && (t.has("Health") || t.has("Armor") || t.has("MagicResist"))) score += 0.6;
+
+    // never pick banned (shouldn't happen in pool)
+    if (!isRelevantItem(candidateItem)) score = -999;
+
+    return score;
+  }
+
+  // ---------- Scenario generation from export only ----------
+  function getTopRow(slug, laneRaw, rank, phase) {
+    const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    return rows[0];
+  }
+
+  const allSlugs = Object.keys(logData.champions || {});
+  const scenariosByKey = new Map(); // key = laneRaw::rank::phase -> scenarios[]
+  const scenariosByLane = new Map(); // laneRaw -> scenarios[] (for balancing)
+  const scenariosByPhase = new Map(); // phase -> scenarios[] (for balancing)
   let totalScenarios = 0;
 
-  for (const slug of allSlugs) {
-    for (const laneRaw of Object.keys(logData.champions[slug] || {})) {
-      for (const rank of RANKS) for (const phase of PHASES) {
-        const row = getTopRow(slug, laneRaw, rank, phase);
-        if (!row) continue;
+  // build scenarios (enemySlug + laneRaw + rank + phase)
+  for (const enemySlug of allSlugs) {
+    const lanesObj = logData.champions[enemySlug] || {};
+    for (const laneRaw of Object.keys(lanesObj)) {
+      for (const rank of RANKS) {
+        const rankObj = lanesObj[laneRaw]?.[rank] || {};
+        const phaseKeys = Object.keys(rankObj);
+        for (const phase of phaseKeys) {
+          const rows = getRows(enemySlug, laneRaw, rank, phase);
+          if (!rows || rows.length === 0) continue;
 
-        const enemyItems = getRelevantItemsFromRow(row, 6);
-        if (!enemyItems || enemyItems.length < 2) continue;
+          const enemyRow = rows[0];
+          const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
+          if (!enemyItems || enemyItems.length < 2) continue;
 
-        const k = key(laneRaw, rank, phase);
-        const candidates = (playerCandidates.get(k) || []).filter(s => s !== slug);
-        if (candidates.length === 0) continue;
+          const sc = { laneRaw, rank, phase, enemySlug };
+          const k = `${laneRaw}::${rank}::${phase}`;
 
-        const sc = { laneRaw, rank, phase, enemySlug: slug };
-        if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
-        scenariosByLane.get(laneRaw).push(sc);
-        totalScenarios++;
+          if (!scenariosByKey.has(k)) scenariosByKey.set(k, []);
+          scenariosByKey.get(k).push(sc);
+
+          if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
+          scenariosByLane.get(laneRaw).push(sc);
+
+          if (!scenariosByPhase.has(phase)) scenariosByPhase.set(phase, []);
+          scenariosByPhase.get(phase).push(sc);
+
+          totalScenarios++;
+        }
       }
     }
   }
 
-  if (totalScenarios === 0) throw new Error("Dataset po filtrech nemá žádné scénáře (mapování itemů/ikony).");
+  if (totalScenarios === 0) throw new Error("Žádné scénáře v exportu po filtrech (relevantní itemy).");
 
-  // diagnostics
-  const laneLines = [];
-  for (const [laneRaw, arr] of [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length)) {
-    laneLines.push(`${laneRaw}:${arr.length}`);
-  }
+  // diagnostics header (lanes + phases distribution)
+  const laneLines = [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length).map(([l,a])=>`${l}:${a.length}`);
+  const phaseLines = [...scenariosByPhase.entries()].sort((a,b)=>b[1].length-a[1].length).map(([p,a])=>`${p}:${a.length}`);
+
   patchMeta.textContent =
     `Patch: ${patch} • Dataset: data/log_builds.json\n` +
     `Scénáře: ${totalScenarios}\n` +
-    `Lane scénáře: ${laneLines.join(" | ")}`;
+    `Lane: ${laneLines.join(" | ")}\n` +
+    `Fáze: ${phaseLines.join(" | ")}`;
 
-  // balanced lane pick (no conversions; uses laneRaw)
-  const lanesList = [...scenariosByLane.keys()];
-  const laneWeights = lanesList.map(l => 1 / Math.max(1, scenariosByLane.get(l).length));
-  const laneWeightSum = laneWeights.reduce((a,b)=>a+b,0);
+  // Balanced pick across lane + phase:
+  // pick phase uniformly from phases present, then lane weighted inverse by count within that phase.
+  const phaseList = [...scenariosByPhase.keys()];
+  const phaseBagReset = () => shuffle(phaseList);
+  let phaseBag = phaseBagReset();
 
-  function pickLaneBalanced() {
-    let r = Math.random() * laneWeightSum;
-    for (let i = 0; i < lanesList.length; i++) {
-      r -= laneWeights[i];
-      if (r <= 0) return lanesList[i];
-    }
-    return lanesList[lanesList.length - 1];
+  function pickPhaseFair() {
+    if (phaseBag.length === 0) phaseBag = phaseBagReset();
+    return phaseBag.pop();
   }
 
-  const laneBags = new Map();
+  const laneBagByPhase = new Map(); // phase -> { laneRaw -> bag[] }
   function nextScenario() {
-    const laneRaw = pickLaneBalanced();
-    if (!laneBags.has(laneRaw) || laneBags.get(laneRaw).length === 0) {
-      laneBags.set(laneRaw, shuffle(scenariosByLane.get(laneRaw)));
+    const phase = pickPhaseFair();
+    const list = scenariosByPhase.get(phase) || [];
+    if (!list.length) return rand([].concat(...[...scenariosByLane.values()]));
+
+    // compute lane weights within selected phase
+    const lanes = new Map(); // laneRaw -> scenarios
+    for (const sc of list) {
+      if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
+      lanes.get(sc.laneRaw).push(sc);
     }
-    return laneBags.get(laneRaw).pop();
+    const laneKeys = [...lanes.keys()];
+    const weights = laneKeys.map(l => 1 / Math.max(1, lanes.get(l).length));
+    const sum = weights.reduce((a,b)=>a+b,0);
+    let r = Math.random() * sum;
+    let laneRaw = laneKeys[laneKeys.length-1];
+    for (let i=0;i<laneKeys.length;i++) { r -= weights[i]; if (r<=0) { laneRaw = laneKeys[i]; break; } }
+
+    const phaseKey = phase;
+    if (!laneBagByPhase.has(phaseKey)) laneBagByPhase.set(phaseKey, new Map());
+    const phaseMap = laneBagByPhase.get(phaseKey);
+
+    if (!phaseMap.has(laneRaw) || phaseMap.get(laneRaw).length === 0) {
+      phaseMap.set(laneRaw, shuffle(lanes.get(laneRaw)));
+    }
+    return phaseMap.get(laneRaw).pop();
   }
 
   // anti-repeat champs
@@ -405,195 +623,6 @@
   const recentPlayers = [];
   const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
 
-  function pickPlayerSlug(candidates) {
-    const shuffled = shuffle(candidates);
-    for (const s of shuffled) if (!recentPlayers.includes(s)) return s;
-    return rand(candidates);
-  }
-
-  // ---- “Tier” matching for choices ----
-  function tierBucket(it) {
-    const g = it.gold || 0;
-    const d = it.depth || 0;
-    // gold bands
-    let band = 0;
-    if (g <= 500) band = 0;
-    else if (g <= 900) band = 1;       // e.g. Doran items / cheap starts
-    else if (g <= 1400) band = 2;      // early components
-    else if (g <= 2000) band = 3;      // bigger components / cheap legendaries in some patches
-    else if (g <= 2600) band = 4;
-    else if (g <= 3200) band = 5;
-    else band = 6;
-
-    // depth bands (meaning-ish)
-    let depthBand = 0;
-    if (d <= 1) depthBand = 0;         // base/starts
-    else if (d === 2) depthBand = 1;
-    else if (d === 3) depthBand = 2;
-    else depthBand = 3;                // 4+ (rare)
-    return `${band}::${depthBand}`;
-  }
-
-  function pickWrongChoices(correctId, laneRaw) {
-    const correct = itemById.get(correctId);
-    const correctTier = tierBucket(correct);
-    const correctGold = correct.gold || 0;
-    const correctDepth = correct.depth || 0;
-
-    // candidate pool: all relevant items in ddragon, never banned, never correct
-    let pool = items.filter(it => it.id !== correctId && isRelevantItem(it));
-
-    // keep same tier bucket primarily
-    const sameTier = pool.filter(it => tierBucket(it) === correctTier);
-    if (sameTier.length >= 20) pool = sameTier;
-
-    // secondary: keep gold close and depth close
-    pool = pool.filter(it => Math.abs((it.gold||0) - correctGold) <= 300 && Math.abs((it.depth||0) - correctDepth) <= 1);
-
-    // fallback if too strict
-    if (pool.length < 30) {
-      pool = items
-        .filter(it => it.id !== correctId && isRelevantItem(it))
-        .filter(it => Math.abs((it.gold||0) - correctGold) <= 600 && Math.abs((it.depth||0) - correctDepth) <= 1);
-    }
-
-    // score for plausibility (similar tags + close gold)
-    const ct = new Set(correct.tags || []);
-    const scored = pool.map(it => {
-      let overlap = 0;
-      for (const t of (it.tags||[])) if (ct.has(t)) overlap++;
-      const price = Math.abs((it.gold||0) - correctGold);
-      return { it, s: price - overlap * 120 };
-    }).sort((a,b)=>a.s-b.s).slice(0, 250).map(x=>x.it);
-
-    const out = [];
-    while (out.length < 2 && scored.length) {
-      const p = rand(scored);
-      if (!out.includes(p.id) && p.id !== correctId) out.push(p.id);
-    }
-
-    // hard fallback if something goes wrong
-    while (out.length < 2) {
-      const p = rand(items.filter(it => isRelevantItem(it) && it.id !== correctId));
-      if (!out.includes(p.id)) out.push(p.id);
-    }
-    return out;
-  }
-
-  // ---- Counter logic (still heuristic, but no “universal” items) ----
-  // IMPORTANT: correct item is ALWAYS relevant, and wrongs are same-tier.
-  const HARD_PICK_CC = new Set(["leona","nautilus","blitzcrank","thresh","rell","morgana"]);
-
-  function counterForScenario({ laneRaw, phase, enemyChampId, enemyItems, playerItems }) {
-    const enemyChamp = champById.get((enemyChampId||"").toLowerCase());
-    const enemyTags = new Set(enemyChamp?.tags || []);
-    const enemyNames = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
-
-    const hasHeavyArmor = enemyItems.some(it => (it.tags||[]).includes("Armor")) && enemyItems.length >= 3;
-    const looksCrit = ["infinity edge","rapid firecannon","phantom dancer","statikk","navori","the collector","bloodthirster"].some(s => enemyNames.includes(s));
-    const looksHeal = ["riftmaker","bloodthirster","ravenous","vamp","omnivamp"].some(s => enemyNames.includes(s));
-    const looksShieldChamp = ["lulu","janna","karma","shen","lux","seraphine","sion"].includes((enemyChampId||"").toLowerCase());
-
-    const pickExisting = (names) => {
-      for (const n of names) {
-        const id = riotItemIdByName(n);
-        if (!id) continue;
-        const it = itemById.get(id);
-        if (isRelevantItem(it)) return it.id;
-      }
-      return null;
-    };
-
-    let correctId = null;
-    let kind = "fallback";
-    const bullets = [];
-
-    if (looksShieldChamp) {
-      const sf = pickExisting(["Serpent's Fang"]);
-      if (sf) {
-        correctId = sf;
-        kind = "antishield";
-        bullets.push("Enemy je shield-based → antishield zvedá efektivní damage.");
-      }
-    }
-
-    if (!correctId && looksHeal) {
-      const gw = pickExisting(["Morellonomicon","Thornmail","Mortal Reminder","Chempunk Chainsword"]);
-      if (gw) {
-        correctId = gw;
-        kind = "antiheal";
-        bullets.push("Enemy má sustain/heal → bez GW fight ztratíš na délku.");
-      }
-    }
-
-    if (!correctId && looksCrit) {
-      const anti = pickExisting(["Randuin's Omen","Frozen Heart"]);
-      if (anti) {
-        correctId = anti;
-        kind = "anticrit";
-        bullets.push("Enemy má crit/AA DPS → přežít a snížit DPS.");
-      }
-    }
-
-    if (!correctId && hasHeavyArmor) {
-      const pen = pickExisting(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"]);
-      if (pen) {
-        correctId = pen;
-        kind = "armorpen";
-        bullets.push("Enemy má armor → bez pen nebudeš ubírat.");
-      }
-    }
-
-    // Support-only answer only if laneRaw indicates support AND enemy is hard pick CC
-    const laneLower = (laneRaw||"").toLowerCase();
-    const isSupportLane = laneLower.includes("support") || laneLower === "supp";
-
-    if (!correctId && isSupportLane) {
-      const isHardPickCC = HARD_PICK_CC.has((enemyChampId||"").toLowerCase());
-      if (isHardPickCC) {
-        const m = pickExisting(["Mikael's Blessing"]);
-        if (m) {
-          correctId = m;
-          kind = "cleanse";
-          bullets.push("Support vs hard pick CC → Mikael zachrání carry.");
-        }
-      }
-    }
-
-    // fallback based on enemy tag (NOT universal)
-    if (!correctId) {
-      if (enemyTags.has("Assassin")) correctId = pickExisting(["Zhonya's Hourglass","Guardian Angel","Edge of Night"]);
-      else if (enemyTags.has("Mage")) correctId = pickExisting(["Banshee's Veil","Force of Nature","Spirit Visage"]);
-      else correctId = pickExisting(["Death's Dance","Sterak's Gage","Randuin's Omen","Frozen Heart"]);
-
-      kind = "fallback";
-      bullets.push("Bez tvrdého triggeru → defensivní/outplay item podle hrozby.");
-    }
-
-    // ABSOLUTE fallback: choose a same-tier relevant item of similar gold to enemy's most expensive item
-    if (!correctId) {
-      const target = enemyItems.slice().sort((a,b)=>(b.gold||0)-(a.gold||0))[0];
-      const targetGold = target?.gold || 1200;
-      const pool = items.filter(it => isRelevantItem(it) && Math.abs((it.gold||0) - targetGold) <= 300);
-      correctId = (pool.length ? rand(pool).id : rand(items.filter(isRelevantItem)).id);
-    }
-
-    // build explanation text with actual shown items
-    const phaseText = phase === "late" ? "late game" : (phase === "mid" ? "mid game" : String(phase));
-    const enemyList = enemyItems.map(x=>x.name).join(", ");
-    const playerList = playerItems.map(x=>x.name).join(", ");
-    let why = `Lane: ${laneRaw}, ${phaseText}. Enemy: ${enemyList}. Ty: ${playerList}. `;
-    if (kind === "armorpen") why += "Potřebuješ penetraci, jinak v teamfightech neprorazíš armor.";
-    else if (kind === "antiheal") why += "Potřebuješ GW, jinak enemy sustain přebije výměny.";
-    else if (kind === "antishield") why += "Potřebuješ antishield, jinak damage mizí ve štítech.";
-    else if (kind === "anticrit") why += "Potřebuješ snížit AA/crit DPS a přežít první burst.";
-    else if (kind === "cleanse") why += "Mikael je cílená odpověď na hard CC pick.";
-    else why += "Bez jasného hard-counteru je správně bezpečný defensivní/outplay item proti hlavní hrozbě.";
-
-    return { correctId, why, bullets };
-  }
-
-  // ---- Round generation (strict: no missing items) ----
   function lockChoices(locked) {
     document.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
   }
@@ -612,6 +641,7 @@
     }
   }
 
+  // ---------- round generation (strict reroll if pool <= 3 or items missing) ----------
   async function newRound() {
     awaitingNext = false;
     nextBtn.style.display = "none";
@@ -625,7 +655,7 @@
     el("reason").textContent = "";
     el("bullets").innerHTML = "";
 
-    for (let tries = 0; tries < 600; tries++) {
+    for (let tries = 0; tries < 900; tries++) {
       const sc = nextScenario();
       const { laneRaw, rank, phase, enemySlug } = sc;
 
@@ -637,25 +667,46 @@
       const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
       if (!enemyItems || enemyItems.length < 2) continue;
 
-      const k = key(laneRaw, rank, phase);
-      const candidates = (playerCandidates.get(k) || []).filter(s => s !== enemySlug);
-      if (!candidates.length) continue;
+      // pick player slug from SAME key (lane/rank/phase) to stay ground truth
+      const k = `${laneRaw}::${rank}::${phase}`;
+      const candidates = scenariosByKey.get(k)?.map(x => x.enemySlug) || [];
+      // candidates here are enemy slugs; we want any champ that has rows in this key, but not the same as enemy
+      const candidatePlayers = [...new Set(candidates)].filter(s => s !== enemySlug);
+      if (candidatePlayers.length === 0) continue;
 
-      const playerSlug = pickPlayerSlug(candidates);
+      const playerSlug = rand(candidatePlayers);
       if (recentPlayers.includes(playerSlug)) continue;
 
-      const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
-      if (!playerRow) continue;
-
-      const playerItems = getRelevantItemsFromRow(playerRow, 6);
-      if (!playerItems || playerItems.length < 2) continue;
+      // player pool from export (top N rows)
+      const poolItems = getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase);
+      if (!poolItems || poolItems.length <= 3) continue; // strict: reroll
 
       const enemyChamp = champFromSlug(enemySlug);
       const playerChamp = champFromSlug(playerSlug);
 
-      // STRICT: if any icon is missing URL => reroll (prevents black squares)
-      if (enemyItems.some(it => !it.icon) || playerItems.some(it => !it.icon)) continue;
+      // player "shown build": still show top row items for context
+      const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
+      if (!playerRow) continue;
+      const playerItems = getRelevantItemsFromRow(playerRow, 6);
+      if (!playerItems || playerItems.length < 2) continue;
 
+      // choose correct from pool by argmax(counterScore)
+      let best = null;
+      let bestScore = -1e9;
+      for (const it of poolItems) {
+        const s = counterScore(enemyItems, it, playerChamp, laneRaw, phase);
+        if (s > bestScore) { bestScore = s; best = it; }
+      }
+      if (!best) continue;
+      const correctId = best.id;
+
+      // distractors from SAME POOL with similar tier
+      const wrongIds = pickTwoDistractorsFromPool(poolItems, correctId);
+      if (!wrongIds) continue;
+
+      const ids = shuffle([correctId, ...wrongIds]);
+
+      // UI
       setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
       setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
 
@@ -668,25 +719,26 @@
       el("playerBuildInfo").textContent =
         `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
 
-      const analysis = counterForScenario({
-        laneRaw, phase,
-        enemyChampId: enemyChamp.id,
-        enemyItems,
-        playerItems
-      });
+      // explanation based on chosen best item + visible context
+      const phaseText = phase;
+      const enemyList = enemyItems.map(x=>x.name).join(", ");
+      const playerList = playerItems.map(x=>x.name).join(", ");
+      const chosenName = itemById.get(correctId)?.name || "—";
+      const bullets = [];
+      const sig = buildEnemySignals(enemyItems);
 
-      const correctId = analysis.correctId;
-      const wrongIds = pickWrongChoices(correctId, laneRaw);
-      const ids = shuffle([correctId, ...wrongIds]);
-
-      // ensure all 3 are relevant + have icons
-      if (ids.some(id => !isRelevantItem(itemById.get(id)) || !itemById.get(id)?.icon)) continue;
+      if (GW_IDS.has(correctId)) bullets.push("Oponent má sustain/lifesteal → GW sníží heal a přetlačí trades.");
+      if (ARMOR_PEN_IDS.has(correctId)) bullets.push("Oponent má armor/HP → penetrace/shred je nutná, jinak damage neprojde.");
+      if (ANTI_SHIELD_IDS.has(correctId)) bullets.push("Oponent má shield-y → Serpent’s Fang snižuje efektivní HP.");
+      if (ANTI_CRIT_IDS.has(correctId)) bullets.push("Oponent má crit/AA DPS → Randuin/FH sníží jejich DPS.");
+      if (bullets.length === 0) bullets.push("Z poolu tvého champa je to nejlepši odpověď na profil hrozby z enemy itemů.");
 
       state.correctId = correctId;
-      state.correctName = itemById.get(correctId)?.name ?? String(correctId);
-      state.why = analysis.why;
-      state.bullets = analysis.bullets;
+      state.correctName = chosenName;
+      state.why = `Lane: ${laneRaw}, fáze: ${phaseText}. Enemy itemy: ${enemyList}. Ty (top build): ${playerList}. Z tvého reálně hraného poolu (top ${POOL_TOP_N_ROWS} řádků exportu) vychází nejlépe ${chosenName} proti tomuhle profilu.`;
+      state.bullets = bullets;
 
+      el("choices").innerHTML = "";
       for (const id of ids) {
         const it = itemById.get(id);
         const btn = document.createElement("button");
@@ -698,12 +750,10 @@
 
       pushRecent(recentEnemies, enemySlug);
       pushRecent(recentPlayers, playerSlug);
-
       return;
     }
 
-    // If you reach here, dataset+patch mismatch or mapping broken.
-    el("result").textContent = "Chyba: nelze vygenerovat validní kolo (patch/item mapping).";
+    el("result").textContent = "Chyba: nelze vygenerovat validní kolo (pool/phase/lane rozpad).";
     el("result").className = "result bad";
   }
 
