@@ -153,7 +153,6 @@
     name: c.name,
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
-  const champById = new Map(champs.map(c => [c.id.toLowerCase(), c]));
 
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
@@ -174,7 +173,7 @@
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
   const RANKS = ["silver","gold"];
-  const PHASES = ["mid","late"]; // start vypnuto
+  const PHASES = ["mid","late"];
 
   patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only • Player+Enemy from export`;
 
@@ -269,7 +268,6 @@
   }
 
   // ---- Read build rows from export ----
-  // Expected: logData.champions[slug][lane][rank][phase] -> rows; row.items[] has {name,...}, row.winRate, row.pickRate
   function getTopRow(slug, lane, rank, phase) {
     const rows = logData?.champions?.[slug]?.[lane]?.[rank]?.[phase];
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -295,18 +293,13 @@
     return found || rand(champs);
   }
 
-  // ---- Build a scenario pool (lane+rank+phase+enemySlug) that is usable ----
-  // Usable means:
-  // - enemy row exists and has >=3 completed items
-  // - there exists at least 1 different champion with data on same lane/rank/phase and >=3 completed items (player)
+  // ---- Scenario pool ----
   const SCENARIOS = [];
-
-  // Precompute which champs are valid as player for each (lane,rank,phase)
   const playerCandidates = new Map(); // key -> [slug...]
   function key(lane, rank, phase) { return `${lane}::${rank}::${phase}`; }
 
-  // Build list of slugs present
   const allSlugs = Object.keys(logData.champions || {});
+
   for (const slug of allSlugs) {
     const lanesObj = logData.champions[slug] || {};
     for (const lane of Object.keys(lanesObj)) {
@@ -345,37 +338,13 @@
   }
 
   if (SCENARIOS.length === 0) {
-    throw new Error("Nenalezen žádný scénář: zkontroluj data/log_builds.json (potřebuje řádky s hotovými itemy).");
+    throw new Error("Nenalezen žádný scénář: zkontroluj data/log_builds.json.");
   }
 
-  // ---- Counter logic (still heuristic, but now both builds are real from export) ----
-  const CC_HEAVY_CHAMPS = new Set([
-    "leona","nautilus","blitzcrank","thresh","rell","alistar","braum","ashe","sejuani","maokai","amumu",
-    "lissandra","galio","twistedfate","skarner","vi","jarvaniv","ornn","zac","renataglasc","morgana"
-  ]);
-
-  function inferPlayerTypeFromBuild(playerBuild) {
-    // crude: based on item tags presence
-    let spell = 0, crit = 0, as = 0, tank = 0, manaRegen = 0;
-    for (const it of playerBuild) {
-      const tags = new Set(it.tags || []);
-      if (tags.has("SpellDamage")) spell++;
-      if (tags.has("CriticalStrike")) crit++;
-      if (tags.has("AttackSpeed")) as++;
-      if (tags.has("Health") || tags.has("Armor") || tags.has("SpellBlock")) tank++;
-      if (tags.has("ManaRegen")) manaRegen++;
-    }
-    if (tank >= 2) return "TANK";
-    if (spell >= 2) return "AP";
-    if (crit + as >= 2) return "AD";
-    if (manaRegen >= 2) return "SUPPORT";
-    return "AD";
-  }
+  // ---- Counter logic (Mikael only when lane=support + hard CC pick champ) ----
+  const HARD_PICK_CC = new Set(["leona","nautilus","blitzcrank","thresh","rell","morgana"]);
 
   function counterForScenario({ lane, phase, enemyChampId, enemyBuild, playerBuild }) {
-    const playerType = inferPlayerTypeFromBuild(playerBuild);
-
-    // detect threats from enemy build + champ
     const enemyNames = enemyBuild.map(x => x.name.toLowerCase()).join(" | ");
     const armorStack = enemyBuild.filter(it => (it.tags||[]).includes("Armor") || (it.tags||[]).includes("Health")).length >= 3;
     const looksCrit = ["infinity edge","rapid firecannon","phantom dancer","statikk","navori","the collector","bloodthirster"].some(s => enemyNames.includes(s));
@@ -396,66 +365,58 @@
     let correctId = null;
     const bullets = [];
 
-    // antishield
     if (looksShieldChamp) {
       kind = "antishield";
       correctId = pick(["Serpent's Fang"]);
-      bullets.push("Enemy champ je typicky shield-based (štíty rozhodují výměny i teamfight).");
-      bullets.push("Antishield zvyšuje efektivní damage v 5v5, hlavně proti carry chráněnému shieldy.");
+      bullets.push("Enemy champ je shield-based → antishield zvyšuje efektivní damage v teamfightu.");
+      bullets.push("Bez antishieldu často nedokončíš kill target.");
     }
 
-    // antiheal
     if (!correctId && looksHeal) {
       kind = "antiheal";
-      if (playerType === "AP") correctId = pick(["Morellonomicon"]);
-      if (!correctId && (playerType === "TANK" || playerType === "SUPPORT")) correctId = pick(["Thornmail"]);
-      if (!correctId) correctId = pick(["Mortal Reminder","Chempunk Chainsword"]);
-      bullets.push("Enemy build má sustain/heal → bez GW se fight protáhne a enemy se vyhealí.");
-      bullets.push("V mid/late fightu to často rozhoduje objektivy a front-to-back.");
+      correctId = pick(["Morellonomicon","Thornmail","Mortal Reminder","Chempunk Chainsword"]);
+      bullets.push("Enemy má sustain/heal → bez GW se fight protáhne a enemy se vyhealí.");
+      bullets.push("To často rozhoduje objektivy i 5v5.");
     }
 
-    // anti-crit
     if (!correctId && looksCrit) {
       kind = "anticrit";
       correctId = pick(["Randuin's Omen","Frozen Heart"]);
-      bullets.push("Enemy build vypadá na crit/autoattack DPS → snížit DPS a přežít první burst.");
-      bullets.push("Výsledek: tvoje role má čas hrát fight (peel/engage/DPS).");
+      bullets.push("Enemy má crit/AA DPS → snížit DPS a přežít první burst.");
+      bullets.push("Přežití první vlny damage rozhoduje teamfight.");
     }
 
-    // armor pen (only when armor/HP stack)
     if (!correctId && armorStack) {
       kind = "armorpen";
       correctId = pick(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"]);
-      bullets.push("Enemy má hodně armor/HP itemů → bez penetrace mu nebudeš ubírat.");
-      bullets.push("V late 5v5 bez pen často neprosekáš frontu a nedostaneš se na carry.");
+      bullets.push("Enemy stackuje armor/HP → bez penetrace mu nebudeš ubírat.");
+      bullets.push("V late 5v5 bez pen neprosekáš frontu.");
     }
 
-    // Mikael gating: pouze support + CC heavy enemy
+    // Mikael ONLY support lane + hard pick CC
     if (!correctId) {
-      const isCCHeavy = CC_HEAVY_CHAMPS.has(enemyChampId.toLowerCase());
-      if (playerType === "SUPPORT" && isCCHeavy) {
+      const isHardPickCC = HARD_PICK_CC.has(enemyChampId.toLowerCase());
+      if (lane === "support" && isHardPickCC) {
         const m = pick(["Mikael's Blessing"]);
         if (m) {
           kind = "cleanse";
           correctId = m;
-          bullets.push("Jsi support a enemy je CC-heavy → Mikael řeší klíčový pick/lockdown na carry.");
-          bullets.push("V mid/late týmových fightech je často rozdíl mezi win/loss jediný cleanse timing.");
+          bullets.push("Jsi support a enemy má tvrdý pick CC → Mikael je reálný win-condition item.");
+          bullets.push("Cleanse na carry ve chvíli hook/stun často znamená vyhraný fight.");
         }
       }
     }
 
-    // fallback by player type (no Mikael here)
+    // fallback (NO Mikael here)
     if (!correctId) {
       kind = "fallback";
-      if (playerType === "AP") correctId = pick(["Zhonya's Hourglass","Banshee's Veil"]);
-      else if (playerType === "TANK") correctId = pick(["Jak'Sho, The Protean","Force of Nature","Randuin's Omen","Frozen Heart"]);
-      else if (playerType === "SUPPORT") correctId = pick(["Locket of the Iron Solari","Redemption"]);
-      else correctId = pick(["Guardian Angel","Edge of Night"]);
+      correctId = pick(["Guardian Angel","Zhonya's Hourglass","Banshee's Veil","Edge of Night","Locket of the Iron Solari","Redemption"]);
       if (!correctId) correctId = fallbackAnyCompletedItem();
-
-      bullets.push("Z dat nevychází jeden tvrdý counter → vybírá se bezpečný outplay/def item podle tvého buildu.");
-      bullets.push(`Kontext: lane=${lane}, phase=${phase}. Cíl je přežít klíčový moment a mít value v 5v5.`);
+      bullets.push("Nevychází jeden tvrdý counter → bezpečný outplay/def item pro přežití klíčové situace.");
+      bullets.push(`Kontext: lane=${lane}, phase=${phase}.`);
     }
+
+    if (!correctId) correctId = fallbackAnyCompletedItem();
 
     const enemyItems = enemyBuild.map(x => x.name).join(", ");
     const playerItems = playerBuild.map(x => x.name).join(", ");
@@ -464,17 +425,21 @@
     let why = `Lane: ${lane}, ${phaseText}. Enemy build: ${enemyItems}. Tvůj build: ${playerItems}. `;
     if (kind === "armorpen") why += "Potřebuješ penetraci, jinak frontu neprosekáš a v 5v5 nemáš damage do tanků/bruiserů.";
     else if (kind === "antiheal") why += "Potřebuješ antiheal, jinak enemy sustain přebije tvoje výměny a fight se prohraje na delku.";
-    else if (kind === "antishield") why += "Potřebuješ antishield, jinak tvůj damage končí ve štítech a nedokončíš kill target.";
+    else if (kind === "antishield") why += "Potřebuješ antishield, jinak tvůj damage mizí ve štítech a nedokončíš kill.";
     else if (kind === "anticrit") why += "Potřebuješ anti-crit/anti-AA, abys přežil DPS carry a dohrál fight.";
-    else if (kind === "cleanse") why += "Potřebuješ Mikael, protože CC enemy rozhoduje fighty; cleanse na carry = vyhraný teamfight.";
+    else if (kind === "cleanse") why += "Mikael dává smysl jen jako support proti hard pick CC, protože cleanse timing rozhoduje fight.";
     else why += "Bez jasného hard-counteru je správně defensivní/outplay item pro přežití klíčové fáze fightu.";
 
-    return { correctId, why, bullets };
+    return { correctId, kind, why, bullets };
   }
 
-  function pickWrongChoices(correctId) {
+  function pickWrongChoices(correctId, lane) {
     const correct = itemById.get(correctId);
-    const poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
+    let poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
+
+    // remove Mikael from wrong options outside support
+    const mikaelId = riotItemIdByName("Mikael's Blessing");
+    if (lane !== "support" && mikaelId) poolAll = poolAll.filter(i => i.id !== mikaelId);
 
     const correctTags = new Set(correct?.tags ?? []);
     const scored = poolAll.map(i => {
@@ -526,18 +491,15 @@
     el("reason").textContent = "";
     el("bullets").innerHTML = "";
 
-    // pick scenario (lane/rank/phase + enemySlug)
     const scenario = rand(SCENARIOS);
     const { lane, rank, phase, enemySlug } = scenario;
 
-    // pick enemy + enemy build from export
     const enemyRow = getTopRow(enemySlug, lane, rank, phase);
     const enemyBuild = getCompletedItemsFromRow(enemyRow, 6);
     if (enemyBuild.length < 3) return newRound();
 
     const enemyChamp = champFromSlug(enemySlug);
 
-    // pick player slug that ALSO has export data on same lane/rank/phase
     const candidates = (playerCandidates.get(`${lane}::${rank}::${phase}`) || []).filter(s => s !== enemySlug);
     if (candidates.length === 0) return newRound();
 
@@ -548,11 +510,9 @@
 
     const playerChamp = champFromSlug(playerSlug);
 
-    // UI champs
     setChamp("enemy", enemyChamp, `Lane: ${lane} • Rank: ${rank} • Fáze: ${phase}`);
     setChamp("player", playerChamp, `Lane: ${lane} • Rank: ${rank} • Fáze: ${phase}`);
 
-    // UI builds
     renderIcons("enemyBuildIcons", enemyBuild);
     renderIcons("playerBuildIcons", playerBuild);
 
@@ -562,7 +522,6 @@
     el("playerBuildInfo").textContent =
       `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
 
-    // decide correct counter + explanation
     const analysis = counterForScenario({
       lane, phase,
       enemyChampId: enemyChamp.id,
@@ -571,7 +530,7 @@
     });
 
     const correctId = analysis.correctId;
-    const wrongIds = pickWrongChoices(correctId);
+    const wrongIds = pickWrongChoices(correctId, lane);
     const ids = shuffle([correctId, ...wrongIds]);
 
     state.correctId = correctId;
