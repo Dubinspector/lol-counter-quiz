@@ -155,6 +155,11 @@
   // ---------- Load export first ----------
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
+  if (!logData || !logData.champions) {
+    patchMeta.textContent = "Chyba: data/log_builds.json se nenačetlo nebo má špatný formát (chybí .champions).";
+    throw new Error("Bad log_builds.json format");
+  }
+
   const RANKS = ["silver","gold"];
 
   // patch pin
@@ -170,7 +175,6 @@
     tags: c.tags || [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
-  const champById = new Map(champs.map(c => [c.id.toLowerCase(), c]));
 
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
@@ -181,13 +185,12 @@
     tags: it.tags ?? [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`,
     depth: it.depth ?? 0,
-    into: it.into ?? [],
     requiredChampion: it.requiredChampion ?? null,
     inStore: it.inStore !== false
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
-  // ---------- Item relevance (no potions/wards/trinkets) ----------
+  // ---------- Item relevance ----------
   const HARD_BANNED_ITEM_IDS = new Set([
     2003,2031,2033,2032,
     2055,
@@ -213,7 +216,7 @@
     return !!it.icon;
   }
 
-  // ---------- LoG -> Riot item mapping (STRICT, NO FUZZY) ----------
+  // ---------- LoG -> Riot item mapping (STRICT) ----------
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -233,13 +236,11 @@
   function getRiotItemByLoGName(logName) {
     const n = normalizeName(logName);
     if (itemByNormName.has(n)) return itemByNormName.get(n);
-
     for (const [a, b] of NAME_ALIASES.entries()) {
       if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
       if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
     }
-
-    return null; // no fuzzy
+    return null;
   }
 
   function riotItemIdByName(name) {
@@ -257,7 +258,7 @@
   function renderIcons(containerId, itemList) {
     const wrap = el(containerId);
     wrap.innerHTML = "";
-    for (const it of itemList) {
+    for (const it of (itemList || [])) {
       const img = document.createElement("img");
       img.className = "mini";
       img.alt = it.name;
@@ -307,27 +308,21 @@
     return Number.isFinite(v) ? v : 0;
   }
 
-  // NEW: owned set helper (no duplicates in choices)
   function itemIdSet(list) {
     const s = new Set();
     for (const it of (list || [])) s.add(it.id);
     return s;
   }
 
-  // ---------- Weighted pool from export (anti-noise) ----------
-  const POOL_TOP_N_ROWS = 12;
-  const MIN_ITEM_WEIGHT_PCT = 3.0;
-  const MIN_ITEM_ROWS = 2;
-  const MIN_POOL_SIZE = 6;
+  // ---------- Pool (relaxed, no hard filters) ----------
+  const POOL_TOP_N_ROWS = 18;
 
   function getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase) {
     const rows = getRows(playerSlug, laneRaw, rank, phase);
     if (!rows) return null;
 
     const lim = Math.min(POOL_TOP_N_ROWS, rows.length);
-
     const weightByItemId = new Map();
-    const rowCountByItemId = new Map();
 
     for (let i = 0; i < lim; i++) {
       const row = rows[i];
@@ -335,29 +330,21 @@
       const w = rowPick > 0 ? rowPick : (1.0 / (i + 1));
 
       const itemsList = getRelevantItemsFromRow(row, 6) || [];
-      const seenThisRow = new Set();
-
       for (const it of itemsList) {
         if (!isRelevantItem(it)) continue;
         weightByItemId.set(it.id, (weightByItemId.get(it.id) || 0) + w);
-        if (!seenThisRow.has(it.id)) {
-          seenThisRow.add(it.id);
-          rowCountByItemId.set(it.id, (rowCountByItemId.get(it.id) || 0) + 1);
-        }
       }
     }
 
-    const pool = [];
+    const all = [];
     for (const [id, w] of weightByItemId.entries()) {
-      const rowsSeen = rowCountByItemId.get(id) || 0;
-      if (rowsSeen < MIN_ITEM_ROWS) continue;
-      if (w < MIN_ITEM_WEIGHT_PCT) continue;
       const it = itemById.get(id);
-      if (it && isRelevantItem(it)) pool.push(it);
+      if (!it || !isRelevantItem(it)) continue;
+      all.push(it);
     }
 
-    pool.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
-    return pool;
+    all.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
+    return all;
   }
 
   // ---------- Tier matching within pool ----------
@@ -392,7 +379,6 @@
     const cdepth = correct.depth || 0;
 
     let candidates = poolItems.filter(it => it.id !== correctId && tierBucket(it) === ctier);
-
     if (candidates.length < 4) {
       candidates = poolItems.filter(it =>
         it.id !== correctId &&
@@ -400,7 +386,6 @@
         Math.abs((it.depth||0) - cdepth) <= 1
       );
     }
-
     if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
 
     candidates = shuffle(candidates);
@@ -412,14 +397,14 @@
     return out.length === 2 ? out : null;
   }
 
-  // ---------- Counter scoring (best-from-pool) ----------
+  // ---------- Counter scoring ----------
   function buildEnemySignals(enemyItems) {
     const names = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
     const armorCount = enemyItems.filter(it => (it.tags||[]).includes("Armor")).length;
     const hasShields = names.includes("sterak") || names.includes("seraph") || names.includes("immortal shieldbow");
     const hasLifesteal = names.includes("bloodthirst") || names.includes("ravenous") || names.includes("blade of the ruined king") || names.includes("riftmaker") || names.includes("vamp");
     const hasCrit = names.includes("infinity edge") || names.includes("phantom dancer") || names.includes("rapid firecannon") || names.includes("statikk") || names.includes("navori") || names.includes("the collector");
-    return { names, armorHeavy: armorCount >= 2, hasLifesteal, hasShields, hasCrit };
+    return { armorHeavy: armorCount >= 2, hasLifesteal, hasShields, hasCrit };
   }
 
   const GW_IDS = new Set([
@@ -467,29 +452,38 @@
     const isSupportish = nm.includes("mikael") || nm.includes("locket") || nm.includes("redemption");
     if (isSupportish && kind !== "SUPPORT") score -= 6;
 
-    if (pTags.has("Tank") && (t.has("Health") || t.has("Armor") || t.has("MagicResist"))) score += 0.8;
-    if (pTags.has("Mage") && (t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction"))) score += 0.8;
-    if (pTags.has("Marksman") && (t.has("CriticalStrike") || t.has("AttackSpeed") || t.has("Damage"))) score += 0.8;
+    // weak class nudges
+    if (pTags.has("Tank") && (t.has("Health") || t.has("Armor") || t.has("MagicResist"))) score += 0.6;
+    if (pTags.has("Mage") && (t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction"))) score += 0.6;
+    if (pTags.has("Marksman") && (t.has("CriticalStrike") || t.has("AttackSpeed") || t.has("Damage"))) score += 0.6;
 
+    // phase nudge
     const ph = (phase || "").toLowerCase();
     if (ph.includes("early")) {
-      if ((candidateItem.gold||0) <= 1200) score += 1.2;
-      if ((candidateItem.depth||0) <= 2) score += 0.8;
+      if ((candidateItem.gold||0) <= 1200) score += 1.0;
+      if ((candidateItem.depth||0) <= 2) score += 0.6;
     }
     if (ph.includes("late")) {
-      if ((candidateItem.gold||0) >= 2600) score += 1.0;
-      if ((candidateItem.depth||0) >= 3) score += 0.6;
+      if ((candidateItem.gold||0) >= 2600) score += 0.8;
+      if ((candidateItem.depth||0) >= 3) score += 0.5;
     }
 
     return score;
   }
 
-  // ---------- Build scenario lists from export (include ALL phases present) ----------
+  // ---------- Scenarios + PHASE rotation (forced early/mid/late) ----------
   const allSlugs = Object.keys(logData.champions || {});
   const scenariosByPhase = new Map();
   const scenariosByLane = new Map();
   const scenariosByKey = new Map();
   let totalScenarios = 0;
+
+  function phaseBucket(phaseStr) {
+    const p = (phaseStr || "").toLowerCase();
+    if (p.includes("early")) return "early";
+    if (p.includes("late")) return "late";
+    return "mid";
+  }
 
   for (const enemySlug of allSlugs) {
     const lanesObj = logData.champions[enemySlug] || {};
@@ -501,13 +495,14 @@
           if (!enemyRow) continue;
 
           const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-          if (!enemyItems || enemyItems.length < 2) continue;
+          if (!enemyItems || enemyItems.length < 1) continue;
 
-          const sc = { laneRaw, rank, phase, enemySlug };
+          const bucket = phaseBucket(phase);
+          const sc = { laneRaw, rank, phase, bucket, enemySlug };
           const k = `${laneRaw}::${rank}::${phase}`;
 
-          if (!scenariosByPhase.has(phase)) scenariosByPhase.set(phase, []);
-          scenariosByPhase.get(phase).push(sc);
+          if (!scenariosByPhase.has(bucket)) scenariosByPhase.set(bucket, []);
+          scenariosByPhase.get(bucket).push(sc);
 
           if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
           scenariosByLane.get(laneRaw).push(sc);
@@ -523,29 +518,39 @@
 
   if (totalScenarios === 0) throw new Error("Žádné scénáře v exportu po filtrech.");
 
-  const phaseLines = [...scenariosByPhase.entries()].sort((a,b)=>b[1].length-a[1].length).map(([p,a])=>`${p}:${a.length}`);
   const laneLines = [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length).map(([l,a])=>`${l}:${a.length}`);
+  const eCount = scenariosByPhase.get("early")?.length || 0;
+  const mCount = scenariosByPhase.get("mid")?.length || 0;
+  const lCount = scenariosByPhase.get("late")?.length || 0;
 
   patchMeta.textContent =
     `Patch: ${patch} • Dataset: data/log_builds.json\n` +
     `Scénáře: ${totalScenarios}\n` +
-    `Fáze: ${phaseLines.join(" | ")}\n` +
+    `Fáze: early:${eCount} | mid:${mCount} | late:${lCount}\n` +
     `Lane: ${laneLines.join(" | ")}`;
 
-  // fair phase rotation (bag)
-  const phaseList = [...scenariosByPhase.keys()];
-  const resetBag = () => shuffle(phaseList);
-  let phaseBag = resetBag();
-  function pickPhaseFair() {
-    if (phaseBag.length === 0) phaseBag = resetBag();
-    return phaseBag.pop();
+  // forced phase alternation: early -> mid -> late -> repeat (skip empty)
+  const phaseCycleBase = ["early","mid","late"];
+  let phaseCycle = phaseCycleBase.slice();
+  let phaseIdx = 0;
+
+  function pickPhaseForced() {
+    for (let t = 0; t < 3; t++) {
+      const p = phaseCycle[phaseIdx % phaseCycle.length];
+      phaseIdx++;
+      if ((scenariosByPhase.get(p) || []).length > 0) return p;
+    }
+    // fallback
+    const keys = [...scenariosByPhase.keys()];
+    return keys.length ? rand(keys) : "mid";
   }
 
-  // per (phase,lane) bags
-  const laneBagByPhase = new Map();
+  // lane bag per phase bucket
+  const laneBagByBucket = new Map();
+
   function nextScenario() {
-    const phase = pickPhaseFair();
-    const list = scenariosByPhase.get(phase) || [];
+    const bucket = pickPhaseForced();
+    const list = scenariosByPhase.get(bucket) || [];
     if (!list.length) return rand([].concat(...[...scenariosByLane.values()]));
 
     const lanes = new Map();
@@ -553,6 +558,7 @@
       if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
       lanes.get(sc.laneRaw).push(sc);
     }
+
     const laneKeys = [...lanes.keys()];
     const weights = laneKeys.map(l => 1 / Math.max(1, lanes.get(l).length));
     const sum = weights.reduce((a,b)=>a+b,0);
@@ -560,8 +566,8 @@
     let laneRaw = laneKeys[laneKeys.length-1];
     for (let i=0;i<laneKeys.length;i++) { r -= weights[i]; if (r<=0) { laneRaw = laneKeys[i]; break; } }
 
-    if (!laneBagByPhase.has(phase)) laneBagByPhase.set(phase, new Map());
-    const m = laneBagByPhase.get(phase);
+    if (!laneBagByBucket.has(bucket)) laneBagByBucket.set(bucket, new Map());
+    const m = laneBagByBucket.get(bucket);
     if (!m.has(laneRaw) || m.get(laneRaw).length === 0) m.set(laneRaw, shuffle(lanes.get(laneRaw)));
     return m.get(laneRaw).pop();
   }
@@ -603,18 +609,18 @@
     el("reason").textContent = "";
     el("bullets").innerHTML = "";
 
-    for (let tries = 0; tries < 1500; tries++) {
+    for (let tries = 0; tries < 2000; tries++) {
       const sc = nextScenario();
       const { laneRaw, rank, phase, enemySlug } = sc;
+
       if (recentEnemies.includes(enemySlug)) continue;
 
       const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
       if (!enemyRow) continue;
 
       const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-      if (!enemyItems || enemyItems.length < 2) continue;
+      if (!enemyItems || enemyItems.length < 1) continue;
 
-      // pick player from same key
       const k = `${laneRaw}::${rank}::${phase}`;
       const slugsInKey = scenariosByKey.get(k)?.map(x => x.enemySlug) || [];
       const candidatePlayers = [...new Set(slugsInKey)].filter(s => s !== enemySlug);
@@ -627,38 +633,46 @@
       if (!playerRow) continue;
 
       const playerItems = getRelevantItemsFromRow(playerRow, 6);
-      if (!playerItems || playerItems.length < 2) continue;
+      if (!playerItems || playerItems.length < 1) continue;
 
       const owned = itemIdSet(playerItems);
 
-      // pool from export, then remove owned items so never offer duplicates
-      const poolItemsRaw = getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase);
-      if (!poolItemsRaw) continue;
-      const poolItems = poolItemsRaw.filter(it => !owned.has(it.id));
-      if (poolItems.length < MIN_POOL_SIZE) continue;
+      const poolRaw = getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase);
+      if (!poolRaw || poolRaw.length < 3) continue;
+
+      // strict rule: never offer owned, but fallback if owned kills options
+      let pool = poolRaw.filter(it => !owned.has(it.id));
+
+      if (pool.length < 3) {
+        // lighten owned: only top 3 items count as "already have"
+        const ownedLite = new Set((playerItems || []).slice(0, 3).map(x => x.id));
+        pool = poolRaw.filter(it => !ownedLite.has(it.id));
+        if (pool.length < 3) continue;
+      }
 
       const enemyChamp = champFromSlug(enemySlug);
       const playerChamp = champFromSlug(playerSlug);
 
-      // choose correct by argmax over poolItems (not owned)
+      // correct = argmax over pool
       let best = null;
       let bestScore = -1e9;
-      for (const it of poolItems) {
+      for (const it of pool) {
         const s = counterScore(enemyItems, it, playerChamp, laneRaw, phase);
         if (s > bestScore) { bestScore = s; best = it; }
       }
       if (!best) continue;
 
       const correctId = best.id;
-
-      // distractors from same pool (not owned), similar tier
-      const wrongIds = pickTwoDistractorsFromPool(poolItems, correctId);
+      const wrongIds = pickTwoDistractorsFromPool(pool, correctId);
       if (!wrongIds) continue;
 
-      // final safety: none can be owned; must be 3 unique
       const ids = shuffle([correctId, ...wrongIds]);
       if (new Set(ids).size !== 3) continue;
-      if (ids.some(id => owned.has(id))) continue;
+      if (ids.some(id => !itemById.get(id))) continue;
+      if (ids.some(id => owned.has(id))) {
+        // safety: if any owned slipped in (shouldn't), reroll
+        continue;
+      }
 
       // UI
       setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
@@ -687,7 +701,7 @@
 
       state.correctId = correctId;
       state.correctName = chosenName;
-      state.why = `Lane: ${laneRaw}, fáze: ${phase}. Enemy itemy: ${enemyList}. Ty (top build): ${playerList}. Volby jsou pouze z poolu itemů, které tvůj champion v této situaci reálně hraje (top ${POOL_TOP_N_ROWS} řádků exportu), a nikdy se nenabízí item, který už máš postavený.`;
+      state.why = `Fáze: ${phase}. Enemy itemy: ${enemyList}. Ty (top build): ${playerList}. Volby jsou pouze z poolu itemů, které tvůj champion v této situaci reálně hraje (top ${POOL_TOP_N_ROWS} řádků exportu), a nikdy se nenabízí item, který už máš postavený.`;
       state.bullets = bullets;
 
       el("choices").innerHTML = "";
@@ -705,7 +719,7 @@
       return;
     }
 
-    el("result").textContent = "Chyba: nelze vygenerovat validní kolo (pool too small / export noise).";
+    el("result").textContent = "Chyba: nelze vygenerovat validní kolo.";
     el("result").className = "result bad";
   }
 
@@ -746,4 +760,3 @@
 </script>
 </body>
 </html>
- 
