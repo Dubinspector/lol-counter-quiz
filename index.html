@@ -6,22 +6,24 @@
   <title>LoL Counter Item Quiz</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#111111">
-  <link rel="icon" href="data:,">
   <style>
     :root { --pad: 14px; }
     body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0b0b0b; color:#f1f1f1; }
-    header { padding: var(--pad); border-bottom: 1px solid #222; display:flex; gap:10px; align-items:center; justify-content:space-between; }
+    header { padding: var(--pad); border-bottom: 1px solid #222; display:flex; gap:10px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; }
     header h1 { font-size: 16px; margin: 0; font-weight: 800; }
     header .meta { font-size: 12px; color:#bdbdbd; line-height: 1.35; white-space: pre-line; }
+
     main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
     .grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
     @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+
     .card { background:#111; border:1px solid #222; border-radius: 16px; padding: 14px; }
     .row { display:flex; gap: 12px; align-items:center; }
     .avatar { width: 68px; height: 68px; border-radius: 14px; border:1px solid #222; background:#000; object-fit:cover; }
     .label { font-size: 12px; color:#bdbdbd; }
     .title { font-size: 18px; font-weight: 900; margin-top:2px; }
     .sub { font-size: 12px; color:#bdbdbd; margin-top:2px; line-height: 1.35; }
+
     .choices { display:flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
     button.choice {
       min-width: 92px; min-height: 92px;
@@ -37,6 +39,7 @@
     button.choice:disabled { opacity: 0.55; cursor: not-allowed; }
     button.choice img { width: 56px; height: 56px; border-radius: 12px; border:1px solid #222; display:block; margin: 0 auto; background:#000; object-fit:cover; }
     button.choice .nm { font-size: 11px; color:#d8d8d8; margin-top: 8px; line-height: 1.2; text-align:center; }
+
     .bar { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
     button.primary {
       border-radius: 14px; border:1px solid #2a2a2a;
@@ -45,20 +48,57 @@
       font-weight: 800;
     }
     button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
     .result { margin-top: 10px; font-weight: 900; }
     .ok { color:#59d36b; }
     .bad { color:#ff5c5c; }
     .small { font-size: 12px; color:#bdbdbd; line-height: 1.35; }
     .pill { padding: 6px 10px; border:1px solid #2a2a2a; border-radius: 999px; background:#121212; font-size: 12px; color:#d6d6d6; }
+
     footer { padding: var(--pad); color:#9a9a9a; font-size: 11px; line-height: 1.35; }
+
     .itemsRow { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     .mini { width: 44px; height: 44px; border-radius: 12px; border:1px solid #222; background:#000; object-fit:cover; }
+
     .analysisBox { margin-top: 10px; padding: 10px; border:1px solid #222; border-radius: 14px; background:#0e0e0e; }
     .analysisBox .t { font-weight: 900; margin-bottom: 6px; }
     .analysisBox ul { margin: 8px 0 0 16px; padding: 0; }
     .analysisBox li { margin: 4px 0; }
+
     #nextBtn { display:none; width:100%; }
-    .select { background:#121212; border:1px solid #2a2a2a; color:#eaeaea; border-radius: 12px; padding: 10px 12px; font-weight:700; }
+
+    /* controls */
+    .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .ctrl {
+      display:flex; flex-direction:column; gap:4px;
+      min-width: 160px;
+    }
+    .ctrl label { font-size: 11px; color:#bdbdbd; }
+    select, input[type="checkbox"] {
+      accent-color: #888;
+    }
+    select {
+      border-radius: 12px;
+      border:1px solid #2a2a2a;
+      background:#0f0f0f;
+      color:#fff;
+      padding: 10px 10px;
+      font-weight: 700;
+      max-width: 100%;
+    }
+    .ctrlRow {
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    }
+    .chk {
+      display:flex; gap:8px; align-items:center;
+      padding: 10px 12px;
+      border:1px solid #2a2a2a;
+      border-radius: 12px;
+      background:#0f0f0f;
+      font-size: 12px;
+      color:#e6e6e6;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -67,23 +107,34 @@
     <h1>LoL Counter Item Quiz</h1>
     <div class="meta" id="patchMeta">Načítám data…</div>
   </div>
-  <div class="bar">
-    <select id="regionSel" class="select" title="Region pro Data Dragon realms">
-      <option value="euw">EUW</option>
-      <option value="eune">EUNE</option>
-      <option value="na">NA</option>
-      <option value="kr">KR</option>
-      <option value="jp">JP</option>
-      <option value="br">BR</option>
-      <option value="la1">LAN</option>
-      <option value="la2">LAS</option>
-      <option value="oce">OCE</option>
-      <option value="tr">TR</option>
-      <option value="ru">RU</option>
-    </select>
-    <span class="pill">Skóre: <span id="score">0</span></span>
-    <span class="pill">Streak: <span id="streak">0</span></span>
-    <button class="primary" id="newBtn">Nové kolo</button>
+
+  <div class="controls">
+    <div class="ctrl">
+      <label for="laneSel">Lane (ground truth z datasetu)</label>
+      <select id="laneSel"></select>
+    </div>
+
+    <div class="ctrl">
+      <label for="champSel">Tvůj champion (volitelné zamknutí)</label>
+      <select id="champSel"></select>
+    </div>
+
+    <div class="ctrlRow">
+      <div class="chk">
+        <input id="lockChamp" type="checkbox">
+        <label for="lockChamp">Zamknout champa</label>
+      </div>
+      <div class="chk">
+        <input id="lockLane" type="checkbox">
+        <label for="lockLane">Zamknout lane</label>
+      </div>
+    </div>
+
+    <div class="bar">
+      <span class="pill">Skóre: <span id="score">0</span></span>
+      <span class="pill">Streak: <span id="streak">0</span></span>
+      <button class="primary" id="newBtn">Nové kolo</button>
+    </div>
   </div>
 </header>
 
@@ -99,11 +150,11 @@
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Build oponenta (z exportu) – bez potion/ward/trinket</div>
+      <div class="label" style="margin-top:14px;">Build oponenta (z datasetu) – bez potion/ward/trinket</div>
       <div class="itemsRow" id="enemyBuildIcons"></div>
       <div class="sub" id="enemyBuildInfo" style="margin-top:8px;">—</div>
 
-      <div class="label" style="margin-top:14px;">Tvůj build (z exportu) – bez potion/ward/trinket</div>
+      <div class="label" style="margin-top:14px;">Tvůj build (z datasetu) – bez potion/ward/trinket</div>
       <div class="itemsRow" id="playerBuildIcons"></div>
       <div class="sub" id="playerBuildInfo" style="margin-top:8px;">—</div>
     </div>
@@ -118,7 +169,7 @@
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3) – jen z poolu tvého champa (export) a nikdy item, který už máš</div>
+      <div class="label" style="margin-top:14px;">Vyber counter item (1 ze 3) – pouze z poolu tvého champa (dataset) a nikdy item, který už máš</div>
       <div class="choices" id="choices"></div>
 
       <div class="result" id="result"></div>
@@ -137,728 +188,761 @@
 </main>
 
 <footer>
-  Fan-made projekt. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon. Data: offline dataset (LoG nebo Riot Match export).
+  Fan-made projekt. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon. Dataset: Riot Match-V5 (offline export).
 </footer>
 
 <script>
 (async function () {
-  const patchMetaEl = document.getElementById("patchMeta");
+  if ("serviceWorker" in navigator) {
+    try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
+  }
 
-  window.addEventListener("error", (ev) => {
-    console.error("window.error:", ev.error || ev.message || ev);
-    if (patchMetaEl) patchMetaEl.textContent = "JS chyba: " + (ev.message || "unknown");
-  });
-  window.addEventListener("unhandledrejection", (ev) => {
-    console.error("unhandledrejection:", ev.reason);
-    if (patchMetaEl) patchMetaEl.textContent = "Promise chyba: " + (ev.reason?.message || String(ev.reason));
-  });
+  const el = (id) => document.getElementById(id);
+  const patchMeta = el("patchMeta");
+  const scoreEl = el("score");
+  const streakEl = el("streak");
+  const newBtn = el("newBtn");
+  const nextBtn = el("nextBtn");
 
-  try {
-    if ("serviceWorker" in navigator) {
-      try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
+  const laneSel = el("laneSel");
+  const champSel = el("champSel");
+  const lockChampEl = el("lockChamp");
+  const lockLaneEl = el("lockLane");
+
+  let SCORE = 0;
+  let STREAK = 0;
+  let awaitingNext = false;
+
+  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const shuffle = (arr) => {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
     }
+    return a;
+  };
 
-    const el = (id) => document.getElementById(id);
-    const scoreEl = el("score");
-    const streakEl = el("streak");
-    const newBtn = el("newBtn");
-    const nextBtn = el("nextBtn");
-    const regionSel = el("regionSel");
+  // ---------- Load dataset ----------
+  const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
-    let SCORE = 0;
-    let STREAK = 0;
-    let awaitingNext = false;
+  // patch pin
+  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
+  const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
+  const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
 
-    const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
-    const shuffle = (arr) => {
-      const a = arr.slice();
-      for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [a[i], a[j]] = [a[j], a[i]];
+  // ---------- DDragon ----------
+  const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`).then(r => r.json());
+  const champs = Object.values(champFull.data).map(c => ({
+    id: c.id,
+    name: c.name,
+    tags: c.tags || [],
+    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
+  }));
+  const champById = new Map(champs.map(c => [c.id.toLowerCase(), c]));
+
+  const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
+  const rawItems = itemJson.data;
+  const items = Object.entries(rawItems).map(([id, it]) => ({
+    id: Number(id),
+    name: it.name,
+    gold: it.gold?.total ?? 0,
+    tags: it.tags ?? [],
+    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`,
+    depth: it.depth ?? 0,
+    into: it.into ?? [],
+    requiredChampion: it.requiredChampion ?? null,
+    inStore: it.inStore !== false
+  }));
+  const itemById = new Map(items.map(i => [i.id, i]));
+  const itemByNormName = new Map();
+
+  // ---------- Item relevance (no potions/wards/trinkets) ----------
+  const HARD_BANNED_ITEM_IDS = new Set([
+    2003,2031,2033,2032,
+    2055,
+    3340,3363,3364,
+    2010,2015,2019,2021,
+    2051,2052,2138,2139,2140
+  ]);
+
+  function isRelevantItem(it) {
+    if (!it) return false;
+    if (!it.inStore) return false;
+    if (it.requiredChampion) return false;
+    if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
+    if ((it.gold ?? 0) <= 0) return false;
+
+    const tags = new Set(it.tags || []);
+    if (tags.has("Consumable")) return false;
+    if (tags.has("Trinket")) return false;
+
+    const n = (it.name || "").toLowerCase();
+    if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
+
+    return !!it.icon;
+  }
+
+  // ---------- Legacy name mapping support (keeps backward compatibility) ----------
+  const normalizeName = (s) =>
+    (s || "")
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/[’'`"]/g, "")
+      .replace(/[^a-z0-9]+/g, "")
+      .trim();
+
+  for (const it of items) itemByNormName.set(normalizeName(it.name), it);
+
+  const NAME_ALIASES = new Map([
+    [normalizeName("Lord Dominik's Regards"), normalizeName("Lord Dominiks Regards")],
+    [normalizeName("Zhonya's Hourglass"), normalizeName("Zhonyas Hourglass")]
+  ]);
+
+  function getRiotItemByLoGName(logName) {
+    const n = normalizeName(logName);
+    if (itemByNormName.has(n)) return itemByNormName.get(n);
+
+    for (const [a, b] of NAME_ALIASES.entries()) {
+      if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
+      if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
+    }
+    return null;
+  }
+
+  function riotItemIdByName(name) {
+    return itemByNormName.get(normalizeName(name))?.id ?? null;
+  }
+
+  // ---------- UI helpers ----------
+  function setChamp(side, champ, extra) {
+    el(`${side}Icon`).src = champ.icon;
+    el(`${side}Icon`).alt = champ.name;
+    el(`${side}Name`).textContent = champ.name;
+    el(`${side}Info`).textContent = extra;
+  }
+
+  function renderIcons(containerId, itemList) {
+    const wrap = el(containerId);
+    wrap.innerHTML = "";
+    for (const it of itemList) {
+      const img = document.createElement("img");
+      img.className = "mini";
+      img.alt = it.name;
+      img.title = it.name;
+      img.src = it.icon + `?v=${Date.now()}`;
+      img.onerror = () => img.remove();
+      wrap.appendChild(img);
+    }
+  }
+
+  function champFromSlug(slug) {
+    const norm = (slug || "").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const found = champs.find(c => c.id.toLowerCase().replace(/[^a-z0-9]/g,"") === norm);
+    return found || rand(champs);
+  }
+
+  // ---------- Dataset access ----------
+  function getRows(slug, laneRaw, rank, phase) {
+    const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    return rows;
+  }
+
+  function getTopRow(slug, laneRaw, rank, phase) {
+    const rows = getRows(slug, laneRaw, rank, phase);
+    return rows ? rows[0] : null;
+  }
+
+  // IMPORTANT: supports Riot dataset items {id} and legacy {name}
+  function getRelevantItemsFromRow(row, max = 6) {
+    const out = [];
+    for (const x of (row?.items || [])) {
+      // Riot dataset: {id}
+      if (x?.id) {
+        const it = itemById.get(Number(x.id));
+        if (!isRelevantItem(it)) continue;
+        out.push(it);
+        if (out.length >= max) break;
+        continue;
       }
-      return a;
-    };
 
-    // ---- dataset ----
-    const dsUrl = new URL("./data/log_builds.json", location.href).toString();
-    const resp = await fetch(dsUrl, { cache: "no-store" });
-    if (!resp.ok) {
-      const t = await resp.text().catch(()=> "");
-      console.error("dataset fetch failed:", resp.status, resp.statusText, t.slice(0,200));
-      patchMetaEl.textContent = `Chyba: data/log_builds.json (${resp.status})`;
-      return;
-    }
-    const logData = await resp.json();
-    if (!logData || !logData.champions) {
-      patchMetaEl.textContent = "Chyba: dataset má špatný formát (chybí .champions)";
-      return;
-    }
-    const RANKS = ["ranked_solo:silver","ranked_solo:gold","ranked_solo:platinum","ranked_solo:emerald","ranked_solo:diamond",
-               "normal_draft:silver","normal_draft:gold","normal_draft:platinum","normal_draft:emerald","normal_draft:diamond"];
-
-    // ---- get CURRENT patch for assets via realms/<region>.json ----
-    async function getLatestPatchFromRealms(region) {
-      const realmsUrl = `https://ddragon.leagueoflegends.com/realms/${region}.json`;
-      const r = await fetch(realmsUrl, { cache: "no-store" });
-      if (!r.ok) throw new Error(`realms ${region} ${r.status}`);
-      const js = await r.json();
-      if (!js || !js.v) throw new Error("realms missing v");
-      return js.v;
-    }
-
-    // fallback: versions[0]
-    async function getLatestPatchFallback() {
-      const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json", { cache: "no-store" }).then(r => r.json());
-      return versions?.[0] || null;
-    }
-
-    let patch = null;
-    let assetRegion = regionSel.value || "euw";
-    try {
-      patch = await getLatestPatchFromRealms(assetRegion);
-    } catch (e) {
-      console.warn("realms failed, fallback versions:", e);
-      patch = await getLatestPatchFallback();
-    }
-    if (!patch) {
-      patchMetaEl.textContent = "Chyba: nelze zjistit patch pro Data Dragon.";
-      return;
-    }
-
-    // ---- DDragon: champions/items for THIS patch ----
-    const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`, { cache: "no-store" }).then(r => r.json());
-    const champs = Object.values(champFull.data).map(c => ({
-      id: c.id,
-      name: c.name,
-      tags: c.tags || [],
-      icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
-    }));
-    const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const champByNormId = new Map(champs.map(c => [norm(c.id), c]));
-    const champFromSlugStrict = (slug) => champByNormId.get(norm(slug)) || null;
-
-    const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`, { cache: "no-store" }).then(r => r.json());
-    const rawItems = itemJson.data;
-    const items = Object.entries(rawItems).map(([id, it]) => ({
-      id: Number(id),
-      name: it.name,
-      gold: it.gold?.total ?? 0,
-      tags: it.tags ?? [],
-      icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`,
-      depth: it.depth ?? 0,
-      requiredChampion: it.requiredChampion ?? null,
-      inStore: it.inStore !== false
-    }));
-    const itemById = new Map(items.map(i => [i.id, i]));
-
-    // ---- item filtering: no potions/wards/trinkets ----
-    const HARD_BANNED_ITEM_IDS = new Set([
-      2003,2031,2033,2032,
-      2055,
-      3340,3363,3364,
-      2010,2015,2019,2021,
-      2051,2052,2138,2139,2140
-    ]);
-
-    function isRelevantItem(it) {
-      if (!it) return false;
-      if (!it.inStore) return false;
-      if (it.requiredChampion) return false;
-      if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
-      if ((it.gold ?? 0) <= 0) return false;
-
-      const tags = new Set(it.tags || []);
-      if (tags.has("Consumable")) return false;
-      if (tags.has("Trinket")) return false;
-
-      const n = (it.name || "").toLowerCase();
-      if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
-
-      return !!it.icon;
-    }
-
-    // ---- LoG name -> Riot item (STRICT) ----
-    const normalizeName = (s) =>
-      (s || "")
-        .toLowerCase()
-        .replace(/&/g, "and")
-        .replace(/[’'`"]/g, "")
-        .replace(/[^a-z0-9]+/g, "")
-        .trim();
-
-    const itemByNormName = new Map();
-    for (const it of items) itemByNormName.set(normalizeName(it.name), it);
-
-    const NAME_ALIASES = new Map([
-      [normalizeName("Lord Dominik's Regards"), normalizeName("Lord Dominiks Regards")],
-      [normalizeName("Zhonya's Hourglass"), normalizeName("Zhonyas Hourglass")]
-    ]);
-
-    function getRiotItemByLoGName(logName) {
-      const n = normalizeName(logName);
-      if (itemByNormName.has(n)) return itemByNormName.get(n);
-      for (const [a, b] of NAME_ALIASES.entries()) {
-        if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
-        if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
-      }
-      return null;
-    }
-
-    function riotItemIdByName(name) {
-      return itemByNormName.get(normalizeName(name))?.id ?? null;
-    }
-
-    // ---- UI helpers ----
-    function setChamp(side, champ, extra) {
-      el(`${side}Icon`).src = champ.icon;
-      el(`${side}Icon`).alt = champ.name;
-      el(`${side}Name`).textContent = champ.name;
-      el(`${side}Info`).textContent = extra;
-    }
-
-    function renderIcons(containerId, itemList) {
-      const wrap = el(containerId);
-      wrap.innerHTML = "";
-      for (const it of (itemList || [])) {
-        const img = document.createElement("img");
-        img.className = "mini";
-        img.alt = it.name;
-        img.title = it.name;
-        img.src = it.icon + `?v=${Date.now()}`;
-        img.onerror = () => img.remove();
-        wrap.appendChild(img);
-      }
-    }
-
-    // ---- export access ----
-    function getRows(slug, laneRaw, rank, phase) {
-      const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
-      if (!Array.isArray(rows) || rows.length === 0) return null;
-      return rows;
-    }
-
-    function getTopRow(slug, laneRaw, rank, phase) {
-      const rows = getRows(slug, laneRaw, rank, phase);
-      return rows ? rows[0] : null;
-    }
-
-    function getRelevantItemsFromRow(row, max = 6) {
-  const out = [];
-  for (const x of (row?.items || [])) {
-    // Riot dataset: {id}
-    if (x?.id) {
-      const it = itemById.get(Number(x.id));
+      // Legacy: {name}
+      const mapped = getRiotItemByLoGName(x?.name);
+      if (!mapped) continue;
+      const it = itemById.get(mapped.id);
       if (!isRelevantItem(it)) continue;
       out.push(it);
       if (out.length >= max) break;
-      continue;
     }
-    // Legacy (LoG): {name}
-    const mapped = getRiotItemByLoGName(x?.name);
-    if (!mapped) continue;
-    const it = itemById.get(mapped.id);
-    if (!isRelevantItem(it)) continue;
-    out.push(it);
-    if (out.length >= max) break;
+    return out;
   }
-  return out;
-}
 
-    function parsePct(x) {
-      if (x == null) return 0;
-      if (typeof x === "number") return x;
-      const s = String(x).trim().replace("%", "");
-      const v = Number(s);
-      return Number.isFinite(v) ? v : 0;
-    }
+  function parsePct(x) {
+    if (x == null) return 0;
+    if (typeof x === "number") return x;
+    const s = String(x).trim().replace("%", "");
+    const v = Number(s);
+    return Number.isFinite(v) ? v : 0;
+  }
 
-    function itemIdSet(list) {
-      const s = new Set();
-      for (const it of (list || [])) s.add(it.id);
-      return s;
-    }
+  function itemIdSet(list) {
+    const s = new Set();
+    for (const it of (list || [])) s.add(it.id);
+    return s;
+  }
 
-    // ---- stage gating ----
-    function isComponent(it) { return (it.depth || 0) <= 2 && (it.gold || 0) <= 1600; }
-    function isCompleted(it) { return (it.depth || 0) >= 3 || (it.gold || 0) >= 2200; }
-    function buildGold(itemsList) { return (itemsList || []).reduce((s, it) => s + (it?.gold || 0), 0); }
-    function buildStageFromItems(itemsList) {
-      const completed = (itemsList || []).filter(isCompleted).length;
-      const gold = buildGold(itemsList);
-      if (completed >= 3 || gold >= 8500) return "late";
-      if (completed >= 1 || gold >= 3500) return "mid";
-      return "early";
-    }
-    function phaseBucket(phaseStr) {
-      const p = (phaseStr || "").toLowerCase();
-      if (p.includes("early")) return "early";
-      if (p.includes("late")) return "late";
-      return "mid";
-    }
-    function filterPoolByStage(poolItems, stage) {
-      if (stage === "early") return poolItems.filter(it => isComponent(it));
-      if (stage === "mid") return poolItems.filter(it => (it.gold || 0) >= 700 && (it.gold || 0) <= 3200);
-      return poolItems.filter(it => isCompleted(it) && (it.gold || 0) >= 2200);
-    }
+  // ---------- Pool from dataset ----------
+  const POOL_TOP_N_ROWS = 12;
+  const MIN_ITEM_WEIGHT_PCT = 3.0;
+  const MIN_ITEM_ROWS = 2;
+  const MIN_POOL_SIZE = 6;
 
-    // ---- pool from export ----
-    const POOL_TOP_N_ROWS = 18;
-    function getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase) {
-      const rows = getRows(playerSlug, laneRaw, rank, phase);
-      if (!rows) return null;
+  function getPlayerPoolFromDataset(playerSlug, laneRaw, rank, phase) {
+    const rows = getRows(playerSlug, laneRaw, rank, phase);
+    if (!rows) return null;
 
-      const lim = Math.min(POOL_TOP_N_ROWS, rows.length);
-      const weightByItemId = new Map();
+    const lim = Math.min(POOL_TOP_N_ROWS, rows.length);
+    const weightByItemId = new Map();
+    const rowCountByItemId = new Map();
 
-      for (let i = 0; i < lim; i++) {
-        const row = rows[i];
-        const rowPick = parsePct(row?.pickRate);
-        const w = rowPick > 0 ? rowPick : (1.0 / (i + 1));
-        const itemsList = getRelevantItemsFromRow(row, 6) || [];
-        for (const it of itemsList) {
-          if (!isRelevantItem(it)) continue;
-          weightByItemId.set(it.id, (weightByItemId.get(it.id) || 0) + w);
+    for (let i = 0; i < lim; i++) {
+      const row = rows[i];
+      const rowPick = parsePct(row?.pickRate);
+      const w = rowPick > 0 ? rowPick : (1.0 / (i + 1));
+
+      const itemsList = getRelevantItemsFromRow(row, 6) || [];
+      const seenThisRow = new Set();
+
+      for (const it of itemsList) {
+        if (!isRelevantItem(it)) continue;
+        weightByItemId.set(it.id, (weightByItemId.get(it.id) || 0) + w);
+        if (!seenThisRow.has(it.id)) {
+          seenThisRow.add(it.id);
+          rowCountByItemId.set(it.id, (rowCountByItemId.get(it.id) || 0) + 1);
         }
       }
+    }
 
-      const all = [];
-      for (const [id] of weightByItemId.entries()) {
-        const it = itemById.get(id);
-        if (!it || !isRelevantItem(it)) continue;
-        all.push(it);
+    const pool = [];
+    for (const [id, w] of weightByItemId.entries()) {
+      const rowsSeen = rowCountByItemId.get(id) || 0;
+      if (rowsSeen < MIN_ITEM_ROWS) continue;
+      if (w < MIN_ITEM_WEIGHT_PCT) continue;
+      const it = itemById.get(id);
+      if (it && isRelevantItem(it)) pool.push(it);
+    }
+
+    pool.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
+    return pool;
+  }
+
+  // ---------- Tier matching ----------
+  function tierBucket(it) {
+    const g = it.gold || 0;
+    const d = it.depth || 0;
+
+    let band = 0;
+    if (g <= 500) band = 0;
+    else if (g <= 900) band = 1;
+    else if (g <= 1400) band = 2;
+    else if (g <= 2000) band = 3;
+    else if (g <= 2600) band = 4;
+    else if (g <= 3200) band = 5;
+    else band = 6;
+
+    let depthBand = 0;
+    if (d <= 1) depthBand = 0;
+    else if (d === 2) depthBand = 1;
+    else if (d === 3) depthBand = 2;
+    else depthBand = 3;
+
+    return `${band}::${depthBand}`;
+  }
+
+  function pickTwoDistractorsFromPool(poolItems, correctId) {
+    const correct = itemById.get(correctId);
+    if (!correct) return null;
+
+    const ctier = tierBucket(correct);
+    const cgold = correct.gold || 0;
+    const cdepth = correct.depth || 0;
+
+    let candidates = poolItems.filter(it => it.id !== correctId && tierBucket(it) === ctier);
+
+    if (candidates.length < 4) {
+      candidates = poolItems.filter(it =>
+        it.id !== correctId &&
+        Math.abs((it.gold||0) - cgold) <= 600 &&
+        Math.abs((it.depth||0) - cdepth) <= 1
+      );
+    }
+
+    if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
+
+    candidates = shuffle(candidates);
+    const out = [];
+    for (const it of candidates) {
+      if (out.length >= 2) break;
+      out.push(it.id);
+    }
+    return out.length === 2 ? out : null;
+  }
+
+  // ---------- Counter scoring ----------
+  function buildEnemySignals(enemyItems) {
+    const names = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
+    const armorCount = enemyItems.filter(it => (it.tags||[]).includes("Armor")).length;
+    const hasShields = names.includes("sterak") || names.includes("seraph") || names.includes("immortal shieldbow");
+    const hasLifesteal = names.includes("bloodthirst") || names.includes("ravenous") || names.includes("blade of the ruined king") || names.includes("riftmaker") || names.includes("vamp");
+    const hasCrit = names.includes("infinity edge") || names.includes("phantom dancer") || names.includes("rapid firecannon") || names.includes("statikk") || names.includes("navori") || names.includes("the collector");
+    return { names, armorHeavy: armorCount >= 2, hasLifesteal, hasShields, hasCrit };
+  }
+
+  const GW_IDS = new Set([
+    riotItemIdByName("Morellonomicon"),
+    riotItemIdByName("Mortal Reminder"),
+    riotItemIdByName("Thornmail"),
+    riotItemIdByName("Chempunk Chainsword")
+  ].filter(Boolean));
+
+  const ARMOR_PEN_IDS = new Set([
+    riotItemIdByName("Lord Dominik's Regards"),
+    riotItemIdByName("Serylda's Grudge"),
+    riotItemIdByName("Black Cleaver"),
+    riotItemIdByName("Terminus")
+  ].filter(Boolean));
+
+  const ANTI_SHIELD_IDS = new Set([riotItemIdByName("Serpent's Fang")].filter(Boolean));
+  const ANTI_CRIT_IDS = new Set([riotItemIdByName("Randuin's Omen"), riotItemIdByName("Frozen Heart")].filter(Boolean));
+
+  function laneKind(laneRaw) {
+    const x = (laneRaw || "").toLowerCase().trim();
+    if (x.includes("support") || x === "supp") return "SUPPORT";
+    if (x === "adc" || x.includes("bot") || x.includes("bottom")) return "ADC";
+    if (x.includes("jungle") || x === "jg") return "JUNGLE";
+    if (x.includes("mid") || x.includes("middle")) return "MID";
+    if (x.includes("top")) return "TOP";
+    return "UNKNOWN";
+  }
+
+  function counterScore(enemyItems, candidateItem, playerChamp, laneRaw, phase) {
+    const sig = buildEnemySignals(enemyItems);
+    const id = candidateItem.id;
+    const kind = laneKind(laneRaw);
+    const pTags = new Set(playerChamp?.tags || []);
+    const t = new Set(candidateItem.tags || []);
+
+    let score = 0;
+
+    if (sig.hasLifesteal && GW_IDS.has(id)) score += 6;
+    if (sig.armorHeavy && ARMOR_PEN_IDS.has(id)) score += 5;
+    if (sig.hasShields && ANTI_SHIELD_IDS.has(id)) score += 4.5;
+    if (sig.hasCrit && ANTI_CRIT_IDS.has(id)) score += 4;
+
+    const nm = candidateItem.name.toLowerCase();
+    const isSupportish = nm.includes("mikael") || nm.includes("locket") || nm.includes("redemption");
+    if (isSupportish && kind !== "SUPPORT") score -= 6;
+
+    if (pTags.has("Tank") && (t.has("Health") || t.has("Armor") || t.has("MagicResist"))) score += 0.8;
+    if (pTags.has("Mage") && (t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction"))) score += 0.8;
+    if (pTags.has("Marksman") && (t.has("CriticalStrike") || t.has("AttackSpeed") || t.has("Damage"))) score += 0.8;
+
+    const ph = (phase || "").toLowerCase();
+    if (ph.includes("early")) {
+      if ((candidateItem.gold||0) <= 1200) score += 1.2;
+      if ((candidateItem.depth||0) <= 2) score += 0.8;
+    }
+    if (ph.includes("late")) {
+      if ((candidateItem.gold||0) >= 2600) score += 1.0;
+      if ((candidateItem.depth||0) >= 3) score += 0.6;
+    }
+    return score;
+  }
+
+  // ---------- Build scenario index from dataset ----------
+  const allSlugs = Object.keys(logData.champions || {});
+
+  const scenariosByPhase = new Map(); // phase -> sc[]
+  const scenariosByLane = new Map();  // lane -> sc[]
+  const scenariosByKey = new Map();   // lane::rank::phase -> sc[] (enemySlug only)
+  const ranksByLanePhase = new Map(); // lane::phase -> Set(rank)
+  const champsByLane = new Map();     // lane -> Set(slug)
+  let totalScenarios = 0;
+
+  for (const enemySlug of allSlugs) {
+    const lanesObj = logData.champions[enemySlug] || {};
+    for (const laneRaw of Object.keys(lanesObj)) {
+      champsByLane.set(laneRaw, champsByLane.get(laneRaw) || new Set());
+      champsByLane.get(laneRaw).add(enemySlug);
+
+      const laneObj = lanesObj[laneRaw] || {};
+      for (const rank of Object.keys(laneObj)) {
+        const rankObj = laneObj[rank] || {};
+        for (const phase of Object.keys(rankObj)) {
+          const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
+          if (!enemyRow) continue;
+
+          const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
+          if (!enemyItems || enemyItems.length < 1) continue;
+
+          const sc = { laneRaw, rank, phase, enemySlug };
+          const k = `${laneRaw}::${rank}::${phase}`;
+
+          if (!scenariosByPhase.has(phase)) scenariosByPhase.set(phase, []);
+          scenariosByPhase.get(phase).push(sc);
+
+          if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
+          scenariosByLane.get(laneRaw).push(sc);
+
+          if (!scenariosByKey.has(k)) scenariosByKey.set(k, []);
+          scenariosByKey.get(k).push(sc);
+
+          const lp = `${laneRaw}::${phase}`;
+          if (!ranksByLanePhase.has(lp)) ranksByLanePhase.set(lp, new Set());
+          ranksByLanePhase.get(lp).add(rank);
+
+          totalScenarios++;
+        }
       }
-      all.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
-      return all;
+    }
+  }
+
+  if (totalScenarios === 0) throw new Error("Žádné scénáře v datasetu po filtrech.");
+
+  const phaseLines = [...scenariosByPhase.entries()].sort((a,b)=>b[1].length-a[1].length).map(([p,a])=>`${p}:${a.length}`);
+  const laneLines = [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length).map(([l,a])=>`${l}:${a.length}`);
+
+  patchMeta.textContent =
+    `Patch: ${patch} • Dataset: data/log_builds.json\n` +
+    `Scénáře: ${totalScenarios}\n` +
+    `Fáze: ${phaseLines.join(" | ")}\n` +
+    `Lane: ${laneLines.join(" | ")}`;
+
+  // ---------- UI: populate lane + champ selectors (ONLY from dataset) ----------
+  const availableLanes = [...scenariosByLane.keys()].sort((a,b)=>a.localeCompare(b));
+  const makeOpt = (val, txt) => {
+    const o = document.createElement("option");
+    o.value = val;
+    o.textContent = txt;
+    return o;
+  };
+
+  laneSel.innerHTML = "";
+  laneSel.appendChild(makeOpt("__any__", "Náhodně"));
+  for (const l of availableLanes) laneSel.appendChild(makeOpt(l, l));
+
+  function getChampsForLane(laneRawOrAny) {
+    if (laneRawOrAny === "__any__") return allSlugs.slice();
+    const s = champsByLane.get(laneRawOrAny);
+    return s ? [...s] : [];
+  }
+
+  function populateChampSelect() {
+    const lanePick = laneSel.value || "__any__";
+    const slugs = getChampsForLane(lanePick);
+
+    // only champs that exist in dataset; sort by display name if possible
+    const sorted = slugs
+      .map(slug => {
+        const c = champFromSlug(slug);
+        return { slug, name: c?.name || slug };
+      })
+      .sort((a,b)=>a.name.localeCompare(b.name));
+
+    const prev = champSel.value;
+    champSel.innerHTML = "";
+    champSel.appendChild(makeOpt("__any__", "Náhodně"));
+    for (const x of sorted) champSel.appendChild(makeOpt(x.slug, x.name));
+
+    if (prev && [...champSel.options].some(o=>o.value===prev)) champSel.value = prev;
+    else champSel.value = "__any__";
+  }
+
+  populateChampSelect();
+
+  // ---------- Fair phase rotation (bag) ----------
+  const phaseList = [...scenariosByPhase.keys()];
+  const resetBag = () => shuffle(phaseList);
+  let phaseBag = resetBag();
+  function pickPhaseFair() {
+    if (phaseBag.length === 0) phaseBag = resetBag();
+    return phaseBag.pop();
+  }
+
+  // per (phase,lane) bags
+  const laneBagByPhase = new Map();
+
+  function nextScenarioAny(phase, forcedLane) {
+    const list = scenariosByPhase.get(phase) || [];
+    if (!list.length) return null;
+
+    // lane filter
+    const filtered = forcedLane ? list.filter(sc => sc.laneRaw === forcedLane) : list;
+    if (!filtered.length) return null;
+
+    // split by lane
+    const lanes = new Map();
+    for (const sc of filtered) {
+      if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
+      lanes.get(sc.laneRaw).push(sc);
     }
 
-    // ---- tier buckets for distractors ----
-    function tierBucket(it) {
-      const g = it.gold || 0;
-      const d = it.depth || 0;
-      let band = 0;
-      if (g <= 500) band = 0;
-      else if (g <= 900) band = 1;
-      else if (g <= 1400) band = 2;
-      else if (g <= 2000) band = 3;
-      else if (g <= 2600) band = 4;
-      else if (g <= 3200) band = 5;
-      else band = 6;
+    const laneKeys = [...lanes.keys()];
+    const weights = laneKeys.map(l => 1 / Math.max(1, lanes.get(l).length));
+    const sum = weights.reduce((a,b)=>a+b,0);
+    let r = Math.random() * sum;
+    let laneRaw = laneKeys[laneKeys.length-1];
+    for (let i=0;i<laneKeys.length;i++) { r -= weights[i]; if (r<=0) { laneRaw = laneKeys[i]; break; } }
 
-      let depthBand = 0;
-      if (d <= 1) depthBand = 0;
-      else if (d === 2) depthBand = 1;
-      else if (d === 3) depthBand = 2;
-      else depthBand = 3;
+    if (!laneBagByPhase.has(phase)) laneBagByPhase.set(phase, new Map());
+    const m = laneBagByPhase.get(phase);
+    if (!m.has(laneRaw) || m.get(laneRaw).length === 0) m.set(laneRaw, shuffle(lanes.get(laneRaw)));
+    return m.get(laneRaw).pop();
+  }
 
-      return `${band}::${depthBand}`;
+  // anti-repeat
+  const RECENT_N = 10;
+  const recentEnemies = [];
+  const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
+
+  function lockChoices(locked) {
+    document.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
+  }
+
+  let state = { correctId: null, correctName: "", why: "", bullets: [] };
+
+  function renderAnalysis() {
+    el("analysisBox").style.display = "block";
+    el("reason").textContent = state.why;
+    const ul = el("bullets");
+    ul.innerHTML = "";
+    for (const b of state.bullets || []) {
+      const li = document.createElement("li");
+      li.textContent = b;
+      ul.appendChild(li);
     }
+  }
 
-    function pickTwoDistractorsFromPool(poolItems, correctId) {
-      const correct = itemById.get(correctId);
-      if (!correct) return null;
+  // ---------- Round generation with optional locks ----------
+  function getLockedLaneOrNull() {
+    if (!lockLaneEl.checked) return null;
+    const v = laneSel.value;
+    if (!v || v === "__any__") return null;
+    return v;
+  }
 
-      const ctier = tierBucket(correct);
-      const cgold = correct.gold || 0;
-      const cdepth = correct.depth || 0;
+  function getLockedPlayerSlugOrNull() {
+    if (!lockChampEl.checked) return null;
+    const v = champSel.value;
+    if (!v || v === "__any__") return null;
+    return v;
+  }
 
-      let candidates = poolItems.filter(it => it.id !== correctId && tierBucket(it) === ctier);
-      if (candidates.length < 4) {
-        candidates = poolItems.filter(it =>
-          it.id !== correctId &&
-          Math.abs((it.gold||0) - cgold) <= 600 &&
-          Math.abs((it.depth||0) - cdepth) <= 1
-        );
+  function getRanksFor(laneRaw, phase) {
+    const s = ranksByLanePhase.get(`${laneRaw}::${phase}`);
+    return s ? [...s] : [];
+  }
+
+  async function newRound() {
+    awaitingNext = false;
+    nextBtn.style.display = "none";
+    nextBtn.disabled = true;
+    newBtn.disabled = false;
+
+    el("result").textContent = "";
+    el("result").className = "result";
+    el("choices").innerHTML = "";
+    el("analysisBox").style.display = "none";
+    el("reason").textContent = "";
+    el("bullets").innerHTML = "";
+
+    const lockedLane = getLockedLaneOrNull();
+    const lockedPlayerSlug = getLockedPlayerSlugOrNull();
+
+    for (let tries = 0; tries < 2500; tries++) {
+      const phase = pickPhaseFair();
+
+      // choose a scenario (enemy candidate) respecting locked lane
+      const sc = nextScenarioAny(phase, lockedLane);
+      if (!sc) continue;
+
+      let { laneRaw, rank, enemySlug } = sc;
+      if (lockedLane && laneRaw !== lockedLane) continue;
+
+      // if champ locked, force player slug and ensure it exists for lane/rank/phase
+      let playerSlug = null;
+
+      if (lockedPlayerSlug) {
+        playerSlug = lockedPlayerSlug;
+
+        // if lane is not locked, force lane to be one where this champ has data; we already picked sc, so validate:
+        const playerRowCheck = getTopRow(playerSlug, laneRaw, rank, phase);
+        if (!playerRowCheck) continue;
+
+        // enemy must not equal player
+        if (enemySlug === playerSlug) continue;
+      } else {
+        // pick player from same key
+        const k = `${laneRaw}::${rank}::${phase}`;
+        const slugsInKey = scenariosByKey.get(k)?.map(x => x.enemySlug) || [];
+        const candidatePlayers = [...new Set(slugsInKey)].filter(s => s !== enemySlug);
+        if (!candidatePlayers.length) continue;
+        playerSlug = rand(candidatePlayers);
       }
-      if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
 
-      candidates = shuffle(candidates);
-      const out = [];
-      for (const it of candidates) {
-        if (out.length >= 2) break;
-        out.push(it.id);
+      // reduce spam repeats
+      if (recentEnemies.includes(enemySlug)) continue;
+
+      const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
+      if (!enemyRow) continue;
+
+      const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
+      if (!enemyItems || enemyItems.length < 1) continue;
+
+      const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
+      if (!playerRow) continue;
+
+      const playerItems = getRelevantItemsFromRow(playerRow, 6);
+      if (!playerItems || playerItems.length < 1) continue;
+
+      const owned = itemIdSet(playerItems);
+
+      // pool from dataset, then remove owned items so never offer duplicates
+      const poolItemsRaw = getPlayerPoolFromDataset(playerSlug, laneRaw, rank, phase);
+      if (!poolItemsRaw) continue;
+      const poolItems = poolItemsRaw.filter(it => !owned.has(it.id));
+      if (poolItems.length < MIN_POOL_SIZE) continue;
+
+      const enemyChamp = champFromSlug(enemySlug);
+      const playerChamp = champFromSlug(playerSlug);
+
+      // choose correct by argmax over poolItems (not owned)
+      let best = null;
+      let bestScore = -1e9;
+      for (const it of poolItems) {
+        const s = counterScore(enemyItems, it, playerChamp, laneRaw, phase);
+        if (s > bestScore) { bestScore = s; best = it; }
       }
-      return out.length === 2 ? out : null;
-    }
+      if (!best) continue;
 
-    // ---- counter scoring (heuristic) ----
-    function buildEnemySignals(enemyItems) {
-      const names = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
-      const armorCount = enemyItems.filter(it => (it.tags||[]).includes("Armor")).length;
-      const hasShields = names.includes("sterak") || names.includes("seraph") || names.includes("immortal shieldbow");
-      const hasLifesteal = names.includes("bloodthirst") || names.includes("ravenous") || names.includes("blade of the ruined king") || names.includes("riftmaker") || names.includes("vamp");
-      const hasCrit = names.includes("infinity edge") || names.includes("phantom dancer") || names.includes("rapid firecannon") || names.includes("statikk") || names.includes("navori") || names.includes("the collector");
-      return { armorHeavy: armorCount >= 2, hasLifesteal, hasShields, hasCrit };
-    }
+      const correctId = best.id;
 
-    const GW_IDS = new Set([
-      riotItemIdByName("Morellonomicon"),
-      riotItemIdByName("Mortal Reminder"),
-      riotItemIdByName("Thornmail"),
-      riotItemIdByName("Chempunk Chainsword")
-    ].filter(Boolean));
+      // distractors from same pool (not owned), similar tier
+      const wrongIds = pickTwoDistractorsFromPool(poolItems, correctId);
+      if (!wrongIds) continue;
 
-    const ARMOR_PEN_IDS = new Set([
-      riotItemIdByName("Lord Dominik's Regards"),
-      riotItemIdByName("Serylda's Grudge"),
-      riotItemIdByName("Black Cleaver"),
-      riotItemIdByName("Terminus")
-    ].filter(Boolean));
+      const ids = shuffle([correctId, ...wrongIds]);
+      if (new Set(ids).size !== 3) continue;
+      if (ids.some(id => owned.has(id))) continue;
 
-    const ANTI_SHIELD_IDS = new Set([riotItemIdByName("Serpent's Fang")].filter(Boolean));
-    const ANTI_CRIT_IDS = new Set([riotItemIdByName("Randuin's Omen"), riotItemIdByName("Frozen Heart")].filter(Boolean));
+      // UI
+      setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
+      setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
 
-    function laneKind(laneRaw) {
-      const x = (laneRaw || "").toLowerCase().trim();
-      if (x.includes("support") || x === "supp") return "SUPPORT";
-      if (x === "adc" || x.includes("bot") || x.includes("bottom")) return "ADC";
-      if (x.includes("jungle") || x === "jg") return "JUNGLE";
-      if (x.includes("mid") || x.includes("middle")) return "MID";
-      if (x.includes("top")) return "TOP";
-      return "UNKNOWN";
-    }
+      renderIcons("enemyBuildIcons", enemyItems);
+      renderIcons("playerBuildIcons", playerItems);
 
-    function counterScore(enemyItems, candidateItem, playerChamp, laneRaw, phase) {
+      el("enemyBuildInfo").textContent =
+        `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top build v bucketu)`;
+
+      el("playerBuildInfo").textContent =
+        `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top build v bucketu)`;
+
+      const chosenName = itemById.get(correctId)?.name || "—";
+      const enemyList = enemyItems.map(x=>x.name).join(", ");
+      const playerList = playerItems.map(x=>x.name).join(", ");
       const sig = buildEnemySignals(enemyItems);
-      const id = candidateItem.id;
-      const kind = laneKind(laneRaw);
-      const pTags = new Set(playerChamp?.tags || []);
-      const t = new Set(candidateItem.tags || []);
 
-      let score = 0;
+      const bullets = [];
+      if (GW_IDS.has(correctId) && sig.hasLifesteal) bullets.push("Oponent má sustain/lifesteal → GW zmenší heal a zlepší trades / all-in.");
+      if (ARMOR_PEN_IDS.has(correctId) && sig.armorHeavy) bullets.push("Oponent skládá armor → bez pen/shredu mu klesneš DPS a neprojdeš front line.");
+      if (ANTI_SHIELD_IDS.has(correctId) && sig.hasShields) bullets.push("Oponent má shield itemy → anti-shield sníží efektivní HP v fightu.");
+      if (ANTI_CRIT_IDS.has(correctId) && sig.hasCrit) bullets.push("Oponent má crit/AA DPS → Randuin/Frozen Heart sníží jeho output v delších bojkách.");
+      if (bullets.length === 0) bullets.push("Z tvého reálně hraného poolu v tomhle bucketu (lane/rank/phase) je to nejlepší odpověď na profil enemy itemů.");
 
-      if (sig.hasLifesteal && GW_IDS.has(id)) score += 6;
-      if (sig.armorHeavy && ARMOR_PEN_IDS.has(id)) score += 5;
-      if (sig.hasShields && ANTI_SHIELD_IDS.has(id)) score += 4.5;
-      if (sig.hasCrit && ANTI_CRIT_IDS.has(id)) score += 4;
+      const lockText =
+        `${lockedLane ? "Lane locked" : "Lane random"}, ${lockedPlayerSlug ? "Champion locked" : "Champion random"}`;
 
-      const nm = candidateItem.name.toLowerCase();
-      const isSupportish = nm.includes("mikael") || nm.includes("locket") || nm.includes("redemption");
-      if (isSupportish && kind !== "SUPPORT") score -= 8;
+      state.correctId = correctId;
+      state.correctName = chosenName;
+      state.why =
+        `Reálná situace z datasetu. ${lockText}.` +
+        ` Lane: ${laneRaw}, fáze: ${phase}.` +
+        ` Enemy: ${enemyList}. Ty: ${playerList}.` +
+        ` Volby jsou pouze z poolu itemů, které tvůj champion v tomhle bucketu opravdu kupuje, a nikdy se nenabízí item, který už máš.`;
+      state.bullets = bullets;
 
-      // “Brand nikdy nehraje Black Cleaver” – tohle se má řešit datasetem.
-      // Tady jen pojistka: čistý Mage nesmí preferovat AD bruiser itemy.
-      if (pTags.has("Mage") && !pTags.has("Fighter") && !pTags.has("Marksman")) {
-        const hasDamage = t.has("Damage");
-        const hasSpell = t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction");
-        if (hasDamage && !hasSpell) score -= 8;
+      el("choices").innerHTML = "";
+      for (const id of ids) {
+        const it = itemById.get(id);
+        const btn = document.createElement("button");
+        btn.className = "choice";
+        btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
+        btn.onclick = () => onPick(id);
+        el("choices").appendChild(btn);
       }
 
-      const ph = (phase || "").toLowerCase();
-      if (ph.includes("early")) {
-        if ((candidateItem.gold||0) <= 1400) score += 1.0;
-        if ((candidateItem.depth||0) <= 2) score += 0.6;
-      }
-      if (ph.includes("late")) {
-        if ((candidateItem.gold||0) >= 2600) score += 0.8;
-        if ((candidateItem.depth||0) >= 3) score += 0.5;
-      }
-
-      return score;
-    }
-
-    // ---- scenarios from dataset (ground truth keys) ----
-    const allSlugs = Object.keys(logData.champions || {});
-    const scenariosByBucket = new Map(); // early/mid/late -> scenarios
-    const scenariosByLane = new Map();
-    const scenariosByKey = new Map();
-    let totalScenarios = 0;
-
-    for (const enemySlug of allSlugs) {
-      const lanesObj = logData.champions[enemySlug] || {};
-      for (const laneRaw of Object.keys(lanesObj)) {
-        for (const rank of RANKS) {
-          const rankObj = lanesObj[laneRaw]?.[rank] || {};
-          for (const phase of Object.keys(rankObj)) {
-            const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
-            if (!enemyRow) continue;
-
-            const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-            if (!enemyItems || enemyItems.length < 1) continue;
-
-            const bucket = phaseBucket(phase);
-            const sc = { laneRaw, rank, phase, bucket, enemySlug };
-            const k = `${laneRaw}::${rank}::${phase}`;
-
-            if (!scenariosByBucket.has(bucket)) scenariosByBucket.set(bucket, []);
-            scenariosByBucket.get(bucket).push(sc);
-
-            if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
-            scenariosByLane.get(laneRaw).push(sc);
-
-            if (!scenariosByKey.has(k)) scenariosByKey.set(k, []);
-            scenariosByKey.get(k).push(sc);
-
-            totalScenarios++;
-          }
-        }
-      }
-    }
-
-    if (totalScenarios === 0) {
-      patchMetaEl.textContent = "Chyba: žádné scénáře v datasetu po mapování itemů.";
+      pushRecent(recentEnemies, enemySlug);
       return;
     }
 
-    const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "unknown");
-    const laneLines = [...scenariosByLane.entries()]
-      .sort((a,b)=>b[1].length-a[1].length)
-      .map(([l,a])=>`${l}:${a.length}`);
-    const eCount = scenariosByBucket.get("early")?.length || 0;
-    const mCount = scenariosByBucket.get("mid")?.length || 0;
-    const lCount = scenariosByBucket.get("late")?.length || 0;
+    el("result").textContent = "Chyba: nelze vygenerovat validní kolo (málo dat pro zvolený lock / filtry).";
+    el("result").className = "result bad";
+  }
 
-    patchMetaEl.textContent =
-      `Assets patch (Riot realms/${assetRegion}): ${patch}\n` +
-      `Dataset patch: ${datasetPatch}\n` +
-      `Scénáře: ${totalScenarios}\n` +
-      `Fáze: early:${eCount} | mid:${mCount} | late:${lCount}\n` +
-      `Lane: ${laneLines.join(" | ")}`;
+  function onPick(id) {
+    if (awaitingNext) return;
+    awaitingNext = true;
 
-    // ---- forced phase cycle ----
-    const phaseCycle = ["early","mid","late"];
-    let phaseIdx = 0;
-    function pickPhaseForced() {
-      for (let t = 0; t < 3; t++) {
-        const p = phaseCycle[phaseIdx % phaseCycle.length];
-        phaseIdx++;
-        if ((scenariosByBucket.get(p) || []).length > 0) return p;
-      }
-      const keys = [...scenariosByBucket.keys()];
-      return keys.length ? rand(keys) : "mid";
-    }
+    lockChoices(true);
+    newBtn.disabled = true;
 
-    // ---- enemy bag per (bucket,lane) ----
-    const laneBagByBucket = new Map();
-    function nextScenario() {
-      const bucket = pickPhaseForced();
-      const list = scenariosByBucket.get(bucket) || [];
-      if (!list.length) return rand([].concat(...[...scenariosByLane.values()]));
+    const ok = id === state.correctId;
 
-      const lanes = new Map();
-      for (const sc of list) {
-        if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
-        lanes.get(sc.laneRaw).push(sc);
-      }
-
-      const laneKeys = [...lanes.keys()];
-      const weights = laneKeys.map(l => 1 / Math.max(1, lanes.get(l).length));
-      const sum = weights.reduce((a,b)=>a+b,0);
-      let r = Math.random() * sum;
-      let laneRaw = laneKeys[laneKeys.length-1];
-      for (let i=0;i<laneKeys.length;i++) { r -= weights[i]; if (r<=0) { laneRaw = laneKeys[i]; break; } }
-
-      if (!laneBagByBucket.has(bucket)) laneBagByBucket.set(bucket, new Map());
-      const m = laneBagByBucket.get(bucket);
-      if (!m.has(laneRaw) || m.get(laneRaw).length === 0) m.set(laneRaw, shuffle(lanes.get(laneRaw)));
-      return m.get(laneRaw).pop();
-    }
-
-    // ---- anti-repeat + player bag per key ----
-    const RECENT_N = 25;
-    const recentEnemies = [];
-    const recentPlayers = [];
-    const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
-
-    const playerBagByKey = new Map();
-    function getPlayerFromKeyBag(key, enemySlug, recentPlayersSet) {
-      const slugsInKey = scenariosByKey.get(key)?.map(x => x.enemySlug) || [];
-      const uniq = [...new Set(slugsInKey)].filter(s => s && s !== enemySlug);
-      if (uniq.length < 2) return null;
-
-      if (!playerBagByKey.has(key) || playerBagByKey.get(key).length === 0) {
-        playerBagByKey.set(key, shuffle(uniq));
-      }
-
-      const bag = playerBagByKey.get(key);
-      for (let i = 0; i < bag.length; i++) {
-        const cand = bag.pop();
-        if (!recentPlayersSet.has(cand)) return cand;
-      }
-      return uniq.find(s => s !== enemySlug) || null;
-    }
-
-    function lockChoices(locked) {
-      document.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
-    }
-
-    let state = { correctId: null, correctName: "", why: "", bullets: [] };
-
-    function renderAnalysis() {
-      el("analysisBox").style.display = "block";
-      el("reason").textContent = state.why;
-      const ul = el("bullets");
-      ul.innerHTML = "";
-      for (const b of state.bullets || []) {
-        const li = document.createElement("li");
-        li.textContent = b;
-        ul.appendChild(li);
-      }
-    }
-
-    async function newRound() {
-      awaitingNext = false;
-      nextBtn.style.display = "none";
-      nextBtn.disabled = true;
-      newBtn.disabled = false;
-
-      el("result").textContent = "";
-      el("result").className = "result";
-      el("choices").innerHTML = "";
-      el("analysisBox").style.display = "none";
-      el("reason").textContent = "";
-      el("bullets").innerHTML = "";
-
-      for (let tries = 0; tries < 9000; tries++) {
-        const sc = nextScenario();
-        const { laneRaw, rank, phase, enemySlug } = sc;
-
-        if (recentEnemies.includes(enemySlug)) continue;
-
-        const enemyChamp = champFromSlugStrict(enemySlug);
-        if (!enemyChamp) continue;
-
-        const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
-        if (!enemyRow) continue;
-
-        const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-        if (!enemyItems || enemyItems.length < 1) continue;
-
-        const key = `${laneRaw}::${rank}::${phase}`;
-        const playerSlug = getPlayerFromKeyBag(key, enemySlug, new Set(recentPlayers));
-        if (!playerSlug) continue;
-
-        const playerChamp = champFromSlugStrict(playerSlug);
-        if (!playerChamp) continue;
-
-        const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
-        if (!playerRow) continue;
-
-        const playerItems = getRelevantItemsFromRow(playerRow, 6);
-        if (!playerItems || playerItems.length < 1) continue;
-
-        // phase/build consistency
-        const expectedStage = phaseBucket(phase);
-        const enemyStage = buildStageFromItems(enemyItems);
-        const playerStage = buildStageFromItems(playerItems);
-        if (enemyStage !== expectedStage) continue;
-        if (playerStage !== expectedStage) continue;
-
-        const owned = itemIdSet(playerItems);
-
-        const poolRaw = getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase);
-        if (!poolRaw || poolRaw.length < 3) continue;
-
-        let pool = poolRaw.filter(it => !owned.has(it.id));
-        pool = filterPoolByStage(pool, expectedStage);
-
-        if (pool.length < 3) continue; // strict: reroll
-
-        let best = null;
-        let bestScore = -1e9;
-        for (const it of pool) {
-          const s = counterScore(enemyItems, it, playerChamp, laneRaw, phase);
-          if (s > bestScore) { bestScore = s; best = it; }
-        }
-        if (!best) continue;
-
-        const correctId = best.id;
-        const wrongIds = pickTwoDistractorsFromPool(pool, correctId);
-        if (!wrongIds) continue;
-
-        const ids = shuffle([correctId, ...wrongIds]);
-        if (new Set(ids).size !== 3) continue;
-        if (ids.some(id => owned.has(id))) continue;
-
-        // UI
-        setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
-        setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
-
-        renderIcons("enemyBuildIcons", enemyItems);
-        renderIcons("playerBuildIcons", playerItems);
-
-        el("enemyBuildInfo").textContent = `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}%`;
-        el("playerBuildInfo").textContent = `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}%`;
-
-        const chosenName = itemById.get(correctId)?.name || "—";
-        const enemyList = enemyItems.map(x=>x.name).join(", ");
-        const playerList = playerItems.map(x=>x.name).join(", ");
-
-        const bullets = [];
-        const sig = buildEnemySignals(enemyItems);
-
-        if (GW_IDS.has(correctId) && sig.hasLifesteal) bullets.push("Oponent má sustain/lifesteal → GW zmenší heal.");
-        if (ARMOR_PEN_IDS.has(correctId) && sig.armorHeavy) bullets.push("Oponent má více armor itemů → bez pen/shredu mu neublížíš.");
-        if (ANTI_SHIELD_IDS.has(correctId) && sig.hasShields) bullets.push("Oponent má shield itemy → Serpent’s Fang snižuje efektivní HP.");
-        if (ANTI_CRIT_IDS.has(correctId) && sig.hasCrit) bullets.push("Oponent má crit DPS → Randuin/Frozen Heart sníží jeho DPS.");
-        if (bullets.length === 0) bullets.push("Z tvého reálně hraného poolu (dataset) je to nejlepší odpověď na profil enemy itemů.");
-
-        state.correctId = correctId;
-        state.correctName = chosenName;
-        state.why = `Enemy: ${enemyList}. Ty: ${playerList}. Volby jsou pouze z poolu tvého champa pro tento lane/rank/phase a ve stejném tieru jako fáze.`;
-        state.bullets = bullets;
-
-        el("choices").innerHTML = "";
-        for (const id of ids) {
-          const it = itemById.get(id);
-          const btn = document.createElement("button");
-          btn.className = "choice";
-          btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
-          btn.onclick = () => onPick(id);
-          el("choices").appendChild(btn);
-        }
-
-        pushRecent(recentEnemies, enemySlug);
-        pushRecent(recentPlayers, playerSlug);
-        return;
-      }
-
-      el("result").textContent = "Chyba: nelze vygenerovat validní kolo (dataset/filtry/mapování itemů).";
+    if (ok) {
+      SCORE += 1;
+      STREAK += 1;
+      el("result").textContent = "SPRÁVNĚ";
+      el("result").className = "result ok";
+    } else {
+      STREAK = 0;
+      el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
       el("result").className = "result bad";
     }
 
-    function onPick(id) {
-      if (awaitingNext) return;
-      awaitingNext = true;
+    scoreEl.textContent = String(SCORE);
+    streakEl.textContent = String(STREAK);
 
-      lockChoices(true);
-      newBtn.disabled = true;
+    renderAnalysis();
 
-      const ok = id === state.correctId;
-
-      if (ok) {
-        SCORE += 1;
-        STREAK += 1;
-        el("result").textContent = "SPRÁVNĚ";
-        el("result").className = "result ok";
-      } else {
-        STREAK = 0;
-        el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
-        el("result").className = "result bad";
-      }
-
-      scoreEl.textContent = String(SCORE);
-      streakEl.textContent = String(STREAK);
-
-      renderAnalysis();
-      nextBtn.style.display = "inline-block";
-      nextBtn.disabled = false;
-    }
-
-    newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
-    nextBtn.addEventListener("click", () => newRound());
-
-    // region change: reload whole page to refresh assets patch
-    regionSel.addEventListener("change", () => location.reload());
-
-    await newRound();
-
-  } catch (e) {
-    console.error("FATAL:", e);
-    if (patchMetaEl) patchMetaEl.textContent = "FATAL: " + (e?.message || String(e));
+    nextBtn.style.display = "inline-block";
+    nextBtn.disabled = false;
   }
+
+  // ---------- Control events ----------
+  laneSel.addEventListener("change", () => {
+    populateChampSelect();
+    if (!awaitingNext) newRound();
+  });
+
+  champSel.addEventListener("change", () => {
+    if (!awaitingNext) newRound();
+  });
+
+  lockChampEl.addEventListener("change", () => {
+    if (!awaitingNext) newRound();
+  });
+
+  lockLaneEl.addEventListener("change", () => {
+    if (!awaitingNext) newRound();
+  });
+
+  newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
+  nextBtn.addEventListener("click", () => newRound());
+
+  await newRound();
 })();
 </script>
 </body>
 </html>
-
-
