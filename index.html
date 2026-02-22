@@ -11,7 +11,7 @@
     body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0b0b0b; color:#f1f1f1; }
     header { padding: var(--pad); border-bottom: 1px solid #222; display:flex; gap:10px; align-items:center; justify-content:space-between; }
     header h1 { font-size: 16px; margin: 0; font-weight: 800; }
-    header .meta { font-size: 12px; color:#bdbdbd; }
+    header .meta { font-size: 12px; color:#bdbdbd; line-height: 1.35; }
     main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
     .grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
     @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
@@ -143,6 +143,7 @@
   let STREAK = 0;
   let awaitingNext = false;
 
+  // ---- Patch + DDragon ----
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
   const patch = versions[0];
 
@@ -153,6 +154,7 @@
     tags: c.tags || [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
+  const champById = new Map(champs.map(c => [c.id.toLowerCase(), c]));
 
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
@@ -169,9 +171,8 @@
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
+  // ---- Export ----
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
-
-  patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Lanes: export-only (no conversions)`;
 
   const RANKS = ["silver","gold"];
   const PHASES = ["mid","late"];
@@ -186,7 +187,7 @@
     return a;
   };
 
-  // Completed item filter
+  // ---- Completed item filter ----
   const EXCLUDE_ITEM_IDS = new Set([2003,2031,2033,2032,3340,3364,3363,2055,2010,2015,2019,2021]);
   function isCompletedItem(it) {
     if (!it) return false;
@@ -201,7 +202,7 @@
   const COMPLETED_POOL = items.filter(isCompletedItem);
   const fallbackAnyCompletedItem = () => rand(COMPLETED_POOL).id;
 
-  // LoG -> Riot item mapping
+  // ---- LoG -> Riot item mapping ----
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -235,7 +236,7 @@
     return itemByNormName.get(normalizeName(name))?.id ?? null;
   }
 
-  // UI helpers
+  // ---- UI helpers ----
   function setChamp(side, champ, extra) {
     el(`${side}Icon`).src = champ.icon;
     el(`${side}Icon`).alt = champ.name;
@@ -258,7 +259,7 @@
     }
   }
 
-  // Export readers (LANE IS RAW KEY FROM EXPORT)
+  // ---- Export readers (laneRaw = exact key from export) ----
   function getTopRow(slug, laneRaw, rank, phase) {
     const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -284,45 +285,40 @@
     return found || rand(champs);
   }
 
-  // Role sanity WITHOUT renaming lanes: just interpret known lane keys
+  // ---- Soft sanity (keeps more data, blocks obvious nonsense) ----
+  // Still NO lane renames; only interpret laneRaw string to filter extreme off-role.
   function laneKind(laneRaw) {
     const x = (laneRaw || "").toLowerCase().trim();
-    if (["adc","bot","bottom"].includes(x)) return "ADC";
-    if (["support","supp"].includes(x)) return "SUPPORT";
-    if (["jungle","jg"].includes(x)) return "JUNGLE";
-    if (["mid","middle"].includes(x)) return "MID";
-    if (["top"].includes(x)) return "TOP";
+    if (x.includes("support") || x === "supp") return "SUPPORT";
+    if (x === "adc" || x.includes("bot") || x.includes("bottom")) return "ADC";
+    if (x.includes("jungle") || x === "jg") return "JUNGLE";
+    if (x.includes("mid") || x.includes("middle")) return "MID";
+    if (x.includes("top")) return "TOP";
     return "UNKNOWN";
   }
 
-  function laneMatchesChampion(laneRaw, champ) {
-    const kind = laneKind(laneRaw);
+  function softLaneOk(laneRaw, champ) {
+    const k = laneKind(laneRaw);
     const tags = new Set(champ?.tags || []);
-    if (kind === "ADC") return tags.has("Marksman");
-    if (kind === "SUPPORT") return tags.has("Support");
-    if (kind === "MID") return tags.has("Mage") || tags.has("Assassin");
-    if (kind === "JUNGLE") return tags.has("Assassin") || tags.has("Fighter") || tags.has("Tank");
-    if (kind === "TOP") return tags.has("Fighter") || tags.has("Tank");
-    return true; // unknown lanes: trust export
+    if (k === "SUPPORT") return tags.has("Support");
+    if (k === "ADC") return tags.has("Marksman"); // blocks Soraka/Nami ADC if export is wrong
+    if (k === "JUNGLE") return tags.has("Assassin") || tags.has("Fighter") || tags.has("Tank");
+    if (k === "MID") return tags.has("Mage") || tags.has("Assassin");
+    if (k === "TOP") return tags.has("Fighter") || tags.has("Tank");
+    return true;
   }
 
-  // Scenario pool + anti-repeat
+  // ---- Build scenario pool ----
   const allSlugs = Object.keys(logData.champions || {});
   const playerCandidates = new Map(); // key -> [slug...]
   const key = (laneRaw, rank, phase) => `${laneRaw}::${rank}::${phase}`;
 
-  // enumerate lanes from export (ground truth)
-  const lanesInExport = new Set();
-  for (const slug of allSlugs) {
-    for (const laneRaw of Object.keys(logData.champions[slug] || {})) {
-      lanesInExport.add(laneRaw);
-    }
-  }
-
+  // candidate lists
   for (const slug of allSlugs) {
     const champ = champFromSlug(slug);
-    for (const laneRaw of Object.keys(logData.champions[slug] || {})) {
-      if (!laneMatchesChampion(laneRaw, champ)) continue;
+    const lanesObj = logData.champions[slug] || {};
+    for (const laneRaw of Object.keys(lanesObj)) {
+      if (!softLaneOk(laneRaw, champ)) continue;
 
       for (const rank of RANKS) for (const phase of PHASES) {
         const row = getTopRow(slug, laneRaw, rank, phase);
@@ -337,15 +333,20 @@
     }
   }
 
-  const SCENARIOS = [];
+  // scenarios grouped by laneRaw for balanced sampling
+  const scenariosByLane = new Map(); // laneRaw -> scenarios[]
+  let totalScenarios = 0;
+
   for (const slug of allSlugs) {
     const champ = champFromSlug(slug);
-    for (const laneRaw of Object.keys(logData.champions[slug] || {})) {
-      if (!laneMatchesChampion(laneRaw, champ)) continue;
+    const lanesObj = logData.champions[slug] || {};
+    for (const laneRaw of Object.keys(lanesObj)) {
+      if (!softLaneOk(laneRaw, champ)) continue;
 
       for (const rank of RANKS) for (const phase of PHASES) {
         const row = getTopRow(slug, laneRaw, rank, phase);
         if (!row) continue;
+
         const enemyBuild = getCompletedItemsFromRow(row, 6);
         if (enemyBuild.length < 3) continue;
 
@@ -353,130 +354,197 @@
         const candidates = (playerCandidates.get(k) || []).filter(s => s !== slug);
         if (candidates.length === 0) continue;
 
-        SCENARIOS.push({ laneRaw, rank, phase, enemySlug: slug });
+        const sc = { laneRaw, rank, phase, enemySlug: slug };
+        if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
+        scenariosByLane.get(laneRaw).push(sc);
+        totalScenarios++;
       }
     }
   }
-  if (SCENARIOS.length === 0) throw new Error("Žádné scénáře po filtrech.");
 
-  let scenarioBag = shuffle(SCENARIOS);
+  if (totalScenarios === 0) throw new Error("Žádné scénáře po filtrech (hotové itemy / kandidáti).");
+
+  // ---- Diagnostics in header ----
+  const laneLines = [];
+  for (const [laneRaw, arr] of [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length)) {
+    laneLines.push(`${laneRaw}:${arr.length}`);
+  }
+  patchMeta.textContent =
+    `Patch: ${patch} • Dataset: data/log_builds.json • scénáře: ${totalScenarios}\n` +
+    `lane scénáře: ${laneLines.join(" | ")}`;
+
+  // ---- Balanced lane sampling ----
+  const lanesList = [...scenariosByLane.keys()];
+  // weight = 1/count so small lanes get chosen more often
+  const laneWeights = lanesList.map(l => 1 / Math.max(1, scenariosByLane.get(l).length));
+  const laneWeightSum = laneWeights.reduce((a,b)=>a+b,0);
+
+  function pickLaneBalanced() {
+    let r = Math.random() * laneWeightSum;
+    for (let i = 0; i < lanesList.length; i++) {
+      r -= laneWeights[i];
+      if (r <= 0) return lanesList[i];
+    }
+    return lanesList[lanesList.length - 1];
+  }
+
+  // per-lane bags to avoid repeats
+  const laneBags = new Map(); // laneRaw -> scenario[]
+  function nextScenario() {
+    const laneRaw = pickLaneBalanced();
+    if (!laneBags.has(laneRaw) || laneBags.get(laneRaw).length === 0) {
+      laneBags.set(laneRaw, shuffle(scenariosByLane.get(laneRaw)));
+    }
+    return laneBags.get(laneRaw).pop();
+  }
+
+  // anti-repeat for champs
   const RECENT_N = 10;
   const recentEnemies = [];
   const recentPlayers = [];
   const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
 
-  function nextScenario() {
-    for (let tries = 0; tries < 200; tries++) {
-      if (scenarioBag.length === 0) scenarioBag = shuffle(SCENARIOS);
-      const sc = scenarioBag.pop();
-      if (recentEnemies.includes(sc.enemySlug)) continue;
-      return sc;
-    }
-    return rand(SCENARIOS);
+  function pickPlayerSlug(candidates) {
+    const shuffled = shuffle(candidates);
+    for (const s of shuffled) if (!recentPlayers.includes(s)) return s;
+    return rand(candidates);
   }
 
-  // Counter logic
+  // ---- Counter logic: stop "Locket always correct" ----
   const HARD_PICK_CC = new Set(["leona","nautilus","blitzcrank","thresh","rell","morgana"]);
-  const supportOnlyNames = ["Locket of the Iron Solari","Redemption","Mikael's Blessing"];
-  const SUPPORT_ONLY_IDS = new Set(supportOnlyNames.map(n => riotItemIdByName(n)).filter(Boolean));
+  const SUPPORT_ONLY_IDS = new Set(
+    ["Locket of the Iron Solari","Redemption","Mikael's Blessing","Knight's Vow","Zeke's Convergence","Shurelya's Battlesong"]
+      .map(riotItemIdByName).filter(Boolean)
+  );
 
-  function isSupportLane(laneRaw) {
-    return laneKind(laneRaw) === "SUPPORT";
+  function isSupportLane(laneRaw) { return laneKind(laneRaw) === "SUPPORT"; }
+
+  function pickExisting(names) {
+    for (const n of names) {
+      const id = riotItemIdByName(n);
+      if (!id) continue;
+      const it = itemById.get(id);
+      if (isCompletedItem(it)) return it.id;
+    }
+    return null;
   }
 
   function counterForScenario({ laneRaw, phase, enemyChampId, enemyBuild }) {
+    const enemyChamp = champById.get((enemyChampId||"").toLowerCase());
+    const enemyTags = new Set(enemyChamp?.tags || []);
     const enemyNames = enemyBuild.map(x => x.name.toLowerCase()).join(" | ");
+
     const armorStack = enemyBuild.filter(it => (it.tags||[]).includes("Armor") || (it.tags||[]).includes("Health")).length >= 3;
     const looksCrit = ["infinity edge","rapid firecannon","phantom dancer","statikk","navori","the collector","bloodthirster"].some(s => enemyNames.includes(s));
     const looksHeal = ["riftmaker","bloodthirster","ravenous","vamp","omnivamp"].some(s => enemyNames.includes(s));
-    const looksShieldChamp = ["lulu","janna","karma","shen","lux","seraphine","sion"].includes(enemyChampId.toLowerCase());
-
-    const pick = (names) => {
-      for (const n of names) {
-        const id = riotItemIdByName(n);
-        if (!id) continue;
-        const it = itemById.get(id);
-        if (isCompletedItem(it)) return it.id;
-      }
-      return null;
-    };
+    const looksShieldChamp = ["lulu","janna","karma","shen","lux","seraphine","sion"].includes((enemyChampId||"").toLowerCase());
 
     let kind = "fallback";
     let correctId = null;
     const bullets = [];
 
+    // global rules (not support-only)
     if (looksShieldChamp) {
-      const sf = pick(["Serpent's Fang"]);
+      const sf = pickExisting(["Serpent's Fang"]);
       if (sf) {
         kind = "antishield";
         correctId = sf;
-        bullets.push("Enemy champ je shield-based → antishield zvyšuje efektivní damage v teamfightu.");
-        bullets.push("Bez antishieldu často nedokončíš kill target.");
+        bullets.push("Enemy champ je shield-based → antishield zvyšuje efektivní damage.");
       }
     }
 
     if (!correctId && looksHeal) {
       kind = "antiheal";
-      correctId = pick(["Morellonomicon","Thornmail","Mortal Reminder","Chempunk Chainsword"]);
-      bullets.push("Enemy má sustain/heal → bez GW se fight protáhne a enemy se vyhealí.");
-      bullets.push("To často rozhoduje objektivy i 5v5.");
+      // keep generic GW options; support lane will not be forced into Locket
+      correctId = pickExisting(["Morellonomicon","Thornmail","Mortal Reminder","Chempunk Chainsword"]);
+      if (correctId) bullets.push("Enemy má sustain/heal → bez GW se fight protáhne a enemy se vyhealí.");
     }
 
     if (!correctId && looksCrit) {
       kind = "anticrit";
-      correctId = pick(["Randuin's Omen","Frozen Heart"]);
-      bullets.push("Enemy má crit/AA DPS → snížit DPS a přežít první burst.");
-      bullets.push("Přežití první vlny damage rozhoduje teamfight.");
+      correctId = pickExisting(["Randuin's Omen","Frozen Heart"]);
+      if (correctId) bullets.push("Enemy má crit/AA DPS → snížit DPS a přežít burst.");
     }
 
     if (!correctId && armorStack) {
       kind = "armorpen";
-      correctId = pick(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"]);
-      bullets.push("Enemy stackuje armor/HP → bez penetrace mu nebudeš ubírat.");
-      bullets.push("V late 5v5 bez pen neprosekáš frontu.");
+      correctId = pickExisting(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"]);
+      if (correctId) bullets.push("Enemy stackuje armor/HP → bez penetrace mu nebudeš ubírat.");
     }
 
-    // Mikael only if laneRaw is support-lane according to export key
+    // support lane: threat-based selection, not always Locket
     if (!correctId && isSupportLane(laneRaw)) {
-      const isHardPickCC = HARD_PICK_CC.has(enemyChampId.toLowerCase());
+      const isHardPickCC = HARD_PICK_CC.has((enemyChampId||"").toLowerCase());
+      const isAssassin = enemyTags.has("Assassin");
+      const isMage = enemyTags.has("Mage");
+      const isFighter = enemyTags.has("Fighter");
+
       if (isHardPickCC) {
-        const m = pick(["Mikael's Blessing"]);
+        const m = pickExisting(["Mikael's Blessing"]);
         if (m) {
           kind = "cleanse";
           correctId = m;
-          bullets.push("Jsi support a enemy má tvrdý pick CC → Mikael je reálný win-condition item.");
-          bullets.push("Cleanse na carry ve chvíli hook/stun často znamená vyhraný fight.");
+          bullets.push("Support vs hard pick CC → Mikael zachrání carry při hook/stun.");
         }
+      }
+
+      if (!correctId && isAssassin) {
+        const l = pickExisting(["Locket of the Iron Solari"]);
+        if (l) {
+          kind = "antiBurst";
+          correctId = l;
+          bullets.push("Assassin threat → Locket sníží burst na carry v první vlně.");
+        }
+      }
+
+      if (!correctId && isMage && !isHardPickCC) {
+        const r = pickExisting(["Redemption"]);
+        if (r) {
+          kind = "pokeSustain";
+          correctId = r;
+          bullets.push("Mage/poke fighty → Redemption přidá sustain a value v prodloužených fightech.");
+        }
+      }
+
+      if (!correctId && (isFighter || enemyTags.has("Tank"))) {
+        const zv = pickExisting(["Zeke's Convergence","Knight's Vow"]);
+        if (zv) {
+          kind = "frontToBack";
+          correctId = zv;
+          bullets.push("Front-to-back / engage fight → Zeke/Vow zvyšují hodnotu peel/engage kolem carry.");
+        }
+      }
+
+      // still nothing: rotate support items (prevents “always Locket”)
+      if (!correctId) {
+        const rotation = ["Shurelya's Battlesong","Redemption","Knight's Vow","Zeke's Convergence","Locket of the Iron Solari"];
+        correctId = pickExisting(rotation);
+        kind = "supportRotation";
+        bullets.push("Žádný tvrdý trigger → support rotace itemů (ne 1 univerzální odpověď).");
       }
     }
 
-    // fallback by laneKind; support-only items never used outside support
+    // non-support fallback by enemy tag (not Locket)
     if (!correctId) {
       kind = "fallback";
-      const k = laneKind(laneRaw);
-      if (k === "SUPPORT") {
-        correctId = pick(["Locket of the Iron Solari","Redemption"]);
-      } else if (k === "ADC") {
-        correctId = pick(["Guardian Angel","Maw of Malmortius","Mercurial Scimitar","Immortal Shieldbow"]);
-      } else if (k === "MID") {
-        correctId = pick(["Zhonya's Hourglass","Banshee's Veil"]);
-      } else if (k === "JUNGLE" || k === "TOP") {
-        correctId = pick(["Sterak's Gage","Death's Dance","Spirit Visage","Force of Nature","Randuin's Omen"]);
-      } else {
-        correctId = pick(["Guardian Angel","Zhonya's Hourglass","Banshee's Veil","Edge of Night"]);
-      }
+      if (enemyTags.has("Assassin")) correctId = pickExisting(["Zhonya's Hourglass","Guardian Angel","Edge of Night"]);
+      else if (enemyTags.has("Mage")) correctId = pickExisting(["Banshee's Veil","Force of Nature","Spirit Visage"]);
+      else correctId = pickExisting(["Guardian Angel","Death's Dance","Sterak's Gage","Randuin's Omen"]);
       if (!correctId) correctId = fallbackAnyCompletedItem();
-      bullets.push("Nevychází tvrdý counter → bezpečný defensivní/outplay item podle lane.");
+      bullets.push("Bez jasného hard-counteru → defenzivní/outplay item podle hrozby.");
     }
 
     const phaseText = phase === "late" ? "late game" : "mid game";
     let why = `Lane: ${laneRaw}, ${phaseText}. `;
-    if (kind === "armorpen") why += "Enemy je tanky/armor-heavy → bez penetrace nemáš dopad v 5v5.";
-    else if (kind === "antiheal") why += "Enemy sustain přebije výměny → potřebuješ GW.";
-    else if (kind === "antishield") why += "Shield champy negují damage → antishield zvedá value damage.";
-    else if (kind === "anticrit") why += "Crit/AA DPS rozhoduje fight → potřebuješ snížit jejich DPS / přežít burst.";
-    else if (kind === "cleanse") why += "Support vs hard CC pick → Mikael řeší klíčové chycení carry.";
-    else why += "Fallback je lane-appropriate defensivní/outplay item.";
+    if (kind === "armorpen") why += "Armor/HP stacking → bez penetrace nemáš damage do fronty.";
+    else if (kind === "antiheal") why += "Sustain/heal → potřebuješ GW, jinak enemy přetlačí fight.";
+    else if (kind === "antishield") why += "Shields → antishield zvyšuje efektivní damage do targetu.";
+    else if (kind === "anticrit") why += "Crit/AA DPS → potřebuješ snížit jejich DPS / přežít burst.";
+    else if (kind === "cleanse") why += "Support vs hard CC pick → Mikael je cílený answer na chycení carry.";
+    else if (kind === "antiBurst") why += "Assassin burst → Locket sníží první vlnu damage na carry.";
+    else if (kind === "pokeSustain") why += "Poke/mage fight → Redemption dává value v prodloužených výměnách.";
+    else if (kind === "frontToBack") why += "Front-to-back fight → Vow/Zeke dávají konzistentní teamfight value.";
+    else why += "Fallback je bezpečný outplay/def item.";
 
     return { correctId, why, bullets };
   }
@@ -485,9 +553,15 @@
     const correct = itemById.get(correctId);
     let poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
 
-    // remove support-only items outside support lane
+    // remove support-only items outside support
     if (!isSupportLane(laneRaw)) {
       poolAll = poolAll.filter(i => !SUPPORT_ONLY_IDS.has(i.id));
+    }
+
+    // also: if correct is support-only, keep wrongs support-ish to be plausible
+    if (isSupportLane(laneRaw) && SUPPORT_ONLY_IDS.has(correctId)) {
+      const supportPool = poolAll.filter(i => SUPPORT_ONLY_IDS.has(i.id));
+      if (supportPool.length >= 2) poolAll = supportPool;
     }
 
     const correctTags = new Set(correct?.tags ?? []);
@@ -509,8 +583,7 @@
   }
 
   function lockChoices(locked) {
-    const btns = document.querySelectorAll("button.choice");
-    btns.forEach(b => b.disabled = locked);
+    document.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
   }
 
   let state = { correctId: null, correctName: "", why: "", bullets: [] };
@@ -527,12 +600,6 @@
     }
   }
 
-  function pickPlayerSlug(candidates) {
-    const shuffled = shuffle(candidates);
-    for (const s of shuffled) if (!recentPlayers.includes(s)) return s;
-    return rand(candidates);
-  }
-
   async function newRound() {
     awaitingNext = false;
     nextBtn.style.display = "none";
@@ -546,35 +613,36 @@
     el("reason").textContent = "";
     el("bullets").innerHTML = "";
 
-    for (let tries = 0; tries < 200; tries++) {
+    for (let tries = 0; tries < 300; tries++) {
       const scenario = nextScenario();
       const { laneRaw, rank, phase, enemySlug } = scenario;
 
+      if (recentEnemies.includes(enemySlug)) continue;
+
       const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
       if (!enemyRow) continue;
-
       const enemyBuild = getCompletedItemsFromRow(enemyRow, 6);
       if (enemyBuild.length < 3) continue;
 
       const enemyChamp = champFromSlug(enemySlug);
-      if (!laneMatchesChampion(laneRaw, enemyChamp)) continue;
+      if (!softLaneOk(laneRaw, enemyChamp)) continue;
 
       const k = `${laneRaw}::${rank}::${phase}`;
       const candidates = (playerCandidates.get(k) || []).filter(s => s !== enemySlug);
       if (candidates.length === 0) continue;
 
       const playerSlug = pickPlayerSlug(candidates);
+      if (recentPlayers.includes(playerSlug)) continue;
+
       const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
       if (!playerRow) continue;
-
       const playerBuild = getCompletedItemsFromRow(playerRow, 6);
       if (playerBuild.length < 3) continue;
 
       const playerChamp = champFromSlug(playerSlug);
-      if (!laneMatchesChampion(laneRaw, playerChamp)) continue;
+      if (!softLaneOk(laneRaw, playerChamp)) continue;
 
-      if (recentEnemies.includes(enemySlug) || recentPlayers.includes(playerSlug)) continue;
-
+      // UI
       setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
       setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
 
@@ -587,6 +655,7 @@
       el("playerBuildInfo").textContent =
         `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
 
+      // analysis + choices
       const analysis = counterForScenario({
         laneRaw, phase,
         enemyChampId: enemyChamp.id,
@@ -613,10 +682,10 @@
 
       pushRecent(recentEnemies, enemySlug);
       pushRecent(recentPlayers, playerSlug);
-
       return;
     }
 
+    // if everything fails, try again
     return newRound();
   }
 
@@ -653,7 +722,6 @@
     if (awaitingNext) return;
     newRound();
   });
-
   nextBtn.addEventListener("click", () => newRound());
 
   await newRound();
