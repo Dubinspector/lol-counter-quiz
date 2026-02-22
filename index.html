@@ -143,12 +143,10 @@
   let STREAK = 0;
   let awaitingNext = false;
 
-  // Patch
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
   const patch = versions[0];
   patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only`;
 
-  // Champions (+ tags)
   const champJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/champion.json`).then(r => r.json());
   const champs = Object.values(champJson.data).map(c => ({
     id: c.id,
@@ -157,7 +155,6 @@
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
 
-  // Items (+ fields for completed filtering)
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
 
@@ -176,11 +173,10 @@
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
-  // LoG dataset
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
   const RANKS = ["silver","gold"];
-  const PHASES = ["mid","late"]; // start vypnuto (start itemy)
+  const PHASES = ["mid","late"]; // start vypnuto
 
   const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const shuffle = (arr) => {
@@ -192,14 +188,12 @@
     return a;
   };
 
-  // Exclude
   const EXCLUDE_ITEM_IDS = new Set([
-    2003,2031,2033,2032, // potions
-    3340,3364,3363,2055, // wards/oracle/control ward
-    2010,2015,2019,2021  // biscuits/refillables (varies)
+    2003,2031,2033,2032,
+    3340,3364,3363,2055,
+    2010,2015,2019,2021
   ]);
 
-  // STRICT completed: depth>=3 AND no upgrades (into empty)
   function isCompletedItem(it) {
     if (!it) return false;
     if (!it.inStore) return false;
@@ -218,7 +212,6 @@
     return rand(COMPLETED_POOL).id;
   }
 
-  // Normalize + map LoG names -> Riot items
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -278,26 +271,21 @@
     el(`${side}Info`).textContent = extra;
   }
 
-  // Icons renderer (no empty boxes; remove broken; cache-bust)
   function renderIcons(containerId, itemList) {
     const wrap = el(containerId);
     wrap.innerHTML = "";
-
     for (const it of itemList) {
       if (!it || !it.icon) continue;
-
       const img = document.createElement("img");
       img.className = "mini";
       img.alt = it.name;
       img.title = it.name;
       img.onerror = () => img.remove();
       img.src = it.icon + `?v=${Date.now()}`;
-
       wrap.appendChild(img);
     }
   }
 
-  // Enemy row -> completed Riot items
   function getCompletedEnemyItemsFromRow(row) {
     const out = [];
     for (const x of (row?.items || [])) {
@@ -321,8 +309,8 @@
     return completed.length;
   }
 
-  // VALID_POOL only for rows with >=3 completed items (stops empty build rows)
-  const VALID_POOL = []; // {slug,lane,rank,phase}
+  // VALID_POOL: jen kombinace, kde top row má aspoň 3 hotové itemy
+  const VALID_POOL = [];
   for (const [slug, lanesObj] of Object.entries(logData.champions || {})) {
     for (const [lane, ranksObj] of Object.entries(lanesObj || {})) {
       for (const rank of RANKS) {
@@ -337,7 +325,7 @@
     }
   }
   if (VALID_POOL.length === 0) {
-    throw new Error("VALID_POOL je prázdný po filtru hotových itemů (>=3). Chybí mapování itemů z LoG.");
+    throw new Error("VALID_POOL je prázdný po filtru hotových itemů (>=3).");
   }
 
   function pickEnemyFromLog() {
@@ -349,7 +337,6 @@
     return { slug, lane, rank, phase, bestRow: best };
   }
 
-  // Simulate player build for explanation
   function simulatePlayerBuild(playerChamp, phase) {
     const arch = playerArchetype(playerChamp);
 
@@ -369,25 +356,25 @@
 
     const forbid = new Set();
     let base = [];
+    const wantN = (phase === "late" ? 4 : 3);
 
     if (arch === "AD") {
-      base = pickUnique(wantTag("Damage").concat(wantTag("CriticalStrike"), wantTag("AttackSpeed")), phase === "late" ? 4 : 3, forbid);
+      base = pickUnique(wantTag("Damage").concat(wantTag("CriticalStrike"), wantTag("AttackSpeed")), wantN, forbid);
     } else if (arch === "AP") {
-      base = pickUnique(wantTag("SpellDamage").concat(wantTag("CooldownReduction"), wantTag("ManaRegen")), phase === "late" ? 4 : 3, forbid);
+      base = pickUnique(wantTag("SpellDamage").concat(wantTag("CooldownReduction"), wantTag("ManaRegen")), wantN, forbid);
     } else if (arch === "TANK") {
-      base = pickUnique(wantTag("Health").concat(wantTag("Armor"), wantTag("SpellBlock")), phase === "late" ? 4 : 3, forbid);
+      base = pickUnique(wantTag("Health").concat(wantTag("Armor"), wantTag("SpellBlock")), wantN, forbid);
     } else {
-      base = pickUnique(wantTag("ManaRegen").concat(wantTag("Health"), wantTag("CooldownReduction")), phase === "late" ? 4 : 3, forbid);
+      base = pickUnique(wantTag("ManaRegen").concat(wantTag("Health"), wantTag("CooldownReduction")), wantN, forbid);
     }
 
-    while (base.length < (phase === "late" ? 4 : 3)) {
+    while (base.length < wantN) {
       const it = rand(COMPLETED_POOL);
       if (!forbid.has(it.id)) { forbid.add(it.id); base.push(it); }
     }
     return base;
   }
 
-  // Counter logic with narrative explanation
   function counterForRow(enemyChampId, lane, phase, row, playerChamp, playerBuild) {
     const enemyCompleted = getCompletedEnemyItemsFromRow(row);
     const enemyText = (row?.items || []).map(x => (x?.name || "").toLowerCase()).join(" | ");
@@ -468,7 +455,7 @@
 
     let why = "";
     if (kind === "armorpen") {
-      why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Potřebuješ víc penetrace, protože bez ní přes armor/HP frontu nedáš damage. V 5v5 pak neprosekáš fight a jsi k ničemu.`;
+      why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Potřebuješ víc penetrace, protože bez ní přes armor/HP frontu nedáš damage. V 5v5 pak neprosekáš fight a jsi bez dopadu.`;
     } else if (kind === "antiheal") {
       why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Antiheal je nutný, protože jinak se v delším fightu vyhealí a objektivy přes sustain neuhráš.`;
     } else if (kind === "antishield") {
@@ -484,7 +471,6 @@
     return { counterItemId: itemId, kind, why, bullets };
   }
 
-  // Wrong choices: completed only
   function pickWrongChoices(correctId) {
     const correct = itemById.get(correctId);
     const poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
@@ -512,40 +498,11 @@
     btns.forEach(b => b.disabled = locked);
   }
 
-  // VALID_POOL only for rows with >=3 completed items
-  const VALID_POOL = []; // {slug,lane,rank,phase}
-  for (const [slug, lanesObj] of Object.entries(logData.champions || {})) {
-    for (const [lane, ranksObj] of Object.entries(lanesObj || {})) {
-      for (const rank of RANKS) {
-        const node = ranksObj?.[rank];
-        if (!node) continue;
-        for (const phase of PHASES) {
-          const rows = node?.[phase];
-          if (!Array.isArray(rows) || rows.length === 0) continue;
-          if (rowHasAtLeastNCompleted(rows[0], 3)) VALID_POOL.push({ slug, lane, rank, phase });
-        }
-      }
-    }
-  }
-  if (VALID_POOL.length === 0) {
-    throw new Error("VALID_POOL je prázdný po filtru hotových itemů (>=3).");
-  }
-
-  function pickEnemyFromLog() {
-    const pick = rand(VALID_POOL);
-    const { slug, lane, rank, phase } = pick;
-    const node = logData.champions?.[slug]?.[lane]?.[rank];
-    const rows = node?.[phase] || [];
-    const best = rows[0] || null;
-    return { slug, lane, rank, phase, bestRow: best };
-  }
-
   let state = { correctId: null, correctName: "", why: "", bullets: [] };
 
   function renderAnalysis() {
     el("analysisBox").style.display = "block";
     el("reason").textContent = state.why;
-
     const ul = el("bullets");
     ul.innerHTML = "";
     for (const b of state.bullets || []) {
