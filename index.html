@@ -143,7 +143,7 @@
   let STREAK = 0;
   let awaitingNext = false;
 
-  // ---- Patch + DDragon ----
+  // Patch + DDragon
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
   const patch = versions[0];
 
@@ -154,7 +154,6 @@
     tags: c.tags || [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
-  const champById = new Map(champs.map(c => [c.id.toLowerCase(), c]));
 
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
@@ -171,10 +170,10 @@
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
 
-  // ---- Export ----
+  // Export
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
-  patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only • Lane normalized + sanity filter`;
+  patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only • Strict role sanity + anti-repeat`;
 
   const RANKS = ["silver","gold"];
   const PHASES = ["mid","late"];
@@ -189,18 +188,18 @@
     return a;
   };
 
-  // ---- Lane normalization ----
+  // Lane normalization (zruší "adc" a používá lane názvy)
   function normLane(lane) {
-  const x = (lane || "").toLowerCase().trim();
-  if (x === "adc" || x === "bot" || x === "bottom") return "bottom";
-  if (x === "support") return "support";
-  if (x === "mid" || x === "middle") return "middle";
-  if (x === "jg" || x === "jungle") return "jungle";
-  if (x === "top") return "top";
-  return x;
-}
+    const x = (lane || "").toLowerCase().trim();
+    if (x === "adc" || x === "bot" || x === "bottom") return "bottom";
+    if (x === "supp" || x === "support") return "support";
+    if (x === "mid" || x === "middle") return "middle";
+    if (x === "jg" || x === "jungle") return "jungle";
+    if (x === "top") return "top";
+    return x;
+  }
 
-  // ---- Completed item filter ----
+  // Completed item filter
   const EXCLUDE_ITEM_IDS = new Set([2003,2031,2033,2032,3340,3364,3363,2055,2010,2015,2019,2021]);
 
   function isCompletedItem(it) {
@@ -217,7 +216,7 @@
   const COMPLETED_POOL = items.filter(isCompletedItem);
   const fallbackAnyCompletedItem = () => rand(COMPLETED_POOL).id;
 
-  // ---- Name mapping LoG -> Riot ----
+  // LoG -> Riot item name mapping
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -251,7 +250,7 @@
     return itemByNormName.get(normalizeName(name))?.id ?? null;
   }
 
-  // ---- UI helpers ----
+  // UI
   function setChamp(side, champ, extra) {
     el(`${side}Icon`).src = champ.icon;
     el(`${side}Icon`).alt = champ.name;
@@ -274,7 +273,7 @@
     }
   }
 
-  // ---- Export readers ----
+  // Export readers
   function getTopRow(slug, lane, rank, phase) {
     const ln = normLane(lane);
     const rows = logData?.champions?.[slug]?.[ln]?.[rank]?.[phase];
@@ -301,30 +300,25 @@
     return found || rand(champs);
   }
 
-  // ---- Sanity filter for lane vs champ tags ----
+  // STRICT role sanity (řeší Nami jungle / Soraka bottom apod.)
   function laneMatchesChampion(lane, champ) {
-  const ln = normLane(lane);
-  const tags = new Set(champ?.tags || []);
-  if (ln === "bottom") return tags.has("Marksman");   // Nami/Soraka vypadnou
-  if (ln === "support") return tags.has("Support");
-  if (ln === "middle") return tags.has("Mage") || tags.has("Assassin");
-  return true;
-}
+    const ln = normLane(lane);
+    const tags = new Set(champ?.tags || []);
 
-  // ---- Build scenario pool ----
-  const SCENARIOS = [];
+    if (ln === "bottom") return tags.has("Marksman");                 // ADC role
+    if (ln === "support") return tags.has("Support");                 // Support role
+    if (ln === "middle") return tags.has("Mage") || tags.has("Assassin");
+    if (ln === "jungle") return tags.has("Assassin") || tags.has("Fighter") || tags.has("Tank");
+    if (ln === "top") return tags.has("Fighter") || tags.has("Tank");
+    return true;
+  }
+
+  // Scenario pool + anti-repeat bag
+  const allSlugs = Object.keys(logData.champions || {});
   const playerCandidates = new Map(); // key -> [slug...]
   const key = (lane, rank, phase) => `${normLane(lane)}::${rank}::${phase}`;
 
-  const allSlugs = Object.keys(logData.champions || {});
-  const allLanesFromData = new Set();
-
-  for (const slug of allSlugs) {
-    const lanesObj = logData.champions[slug] || {};
-    for (const lane of Object.keys(lanesObj)) allLanesFromData.add(normLane(lane));
-  }
-
-  // candidates per lane/rank/phase
+  // Build candidate lists per (lane,rank,phase)
   for (const slug of allSlugs) {
     const champ = champFromSlug(slug);
     const lanesObj = logData.champions[slug] || {};
@@ -347,7 +341,7 @@
     }
   }
 
-  // scenarios (enemy must also pass sanity)
+  const SCENARIOS = [];
   for (const slug of allSlugs) {
     const champ = champFromSlug(slug);
     const lanesObj = logData.champions[slug] || {};
@@ -359,7 +353,6 @@
         for (const phase of PHASES) {
           const row = getTopRow(slug, lane, rank, phase);
           if (!row) continue;
-
           const enemyBuild = getCompletedItemsFromRow(row, 6);
           if (enemyBuild.length < 3) continue;
 
@@ -374,13 +367,40 @@
   }
 
   if (SCENARIOS.length === 0) {
-    throw new Error("Žádné scénáře po filtrech: zkontroluj lane klíče v data/log_builds.json.");
+    throw new Error("Žádné scénáře po filtrech. Data jsou off-role nebo špatně pojmenované lane klíče.");
   }
 
-  // ---- Counter logic ----
+  // anti-repeat: bag + recent history
+  let scenarioBag = shuffle(SCENARIOS);
+  const RECENT_N = 10;
+  const recentEnemies = [];
+  const recentPlayers = [];
+
+  function pushRecent(arr, v) {
+    arr.push(v);
+    while (arr.length > RECENT_N) arr.shift();
+  }
+
+  function nextScenario() {
+    // bag ensures better coverage; also avoid repeating recent enemy
+    for (let tries = 0; tries < 200; tries++) {
+      if (scenarioBag.length === 0) scenarioBag = shuffle(SCENARIOS);
+      const sc = scenarioBag.pop();
+
+      if (recentEnemies.includes(sc.enemySlug)) continue;
+      return sc;
+    }
+    // fallback
+    return rand(SCENARIOS);
+  }
+
+  // Counter logic fixes:
+  // - Locket/Redemption/Mikael: nikdy nesmí být "správně" mimo support lane.
+  // - Locket už nebude fallback pro non-support.
   const HARD_PICK_CC = new Set(["leona","nautilus","blitzcrank","thresh","rell","morgana"]);
 
-  function counterForScenario({ lane, phase, enemyChampId, enemyBuild, playerBuild }) {
+  function counterForScenario({ lane, phase, enemyChampId, enemyBuild }) {
+    const ln = normLane(lane);
     const enemyNames = enemyBuild.map(x => x.name.toLowerCase()).join(" | ");
 
     const armorStack = enemyBuild.filter(it => (it.tags||[]).includes("Armor") || (it.tags||[]).includes("Health")).length >= 3;
@@ -403,10 +423,13 @@
     const bullets = [];
 
     if (looksShieldChamp) {
-      kind = "antishield";
-      correctId = pick(["Serpent's Fang"]);
-      bullets.push("Enemy champ je shield-based → antishield zvyšuje efektivní damage v teamfightu.");
-      bullets.push("Bez antishieldu často nedokončíš kill target.");
+      const sf = pick(["Serpent's Fang"]);
+      if (sf) {
+        kind = "antishield";
+        correctId = sf;
+        bullets.push("Enemy champ je shield-based → antishield zvyšuje efektivní damage v teamfightu.");
+        bullets.push("Bez antishieldu často nedokončíš kill target.");
+      }
     }
 
     if (!correctId && looksHeal) {
@@ -430,10 +453,10 @@
       bullets.push("V late 5v5 bez pen neprosekáš frontu.");
     }
 
-    // Mikael only support lane + hard pick CC
-    if (!correctId) {
+    // Mikael pouze support + hard pick CC
+    if (!correctId && ln === "support") {
       const isHardPickCC = HARD_PICK_CC.has(enemyChampId.toLowerCase());
-      if (normLane(lane) === "support" && isHardPickCC) {
+      if (isHardPickCC) {
         const m = pick(["Mikael's Blessing"]);
         if (m) {
           kind = "cleanse";
@@ -444,38 +467,52 @@
       }
     }
 
+    // Fallback by lane (LOCKET/REDEMPTION jen support)
     if (!correctId) {
       kind = "fallback";
-      correctId = pick(["Guardian Angel","Zhonya's Hourglass","Banshee's Veil","Edge of Night","Locket of the Iron Solari","Redemption"]);
+      if (ln === "support") {
+        correctId = pick(["Locket of the Iron Solari","Redemption"]);
+      } else if (ln === "bottom") {
+        correctId = pick(["Guardian Angel","Maw of Malmortius","Mercurial Scimitar","Immortal Shieldbow"]);
+      } else if (ln === "middle") {
+        correctId = pick(["Zhonya's Hourglass","Banshee's Veil"]);
+      } else if (ln === "jungle" || ln === "top") {
+        correctId = pick(["Sterak's Gage","Death's Dance","Spirit Visage","Force of Nature","Randuin's Omen"]);
+      }
       if (!correctId) correctId = fallbackAnyCompletedItem();
-      bullets.push("Nevychází jeden tvrdý counter → bezpečný outplay/def item pro přežití klíčové situace.");
-      bullets.push(`Kontext: lane=${lane}, phase=${phase}.`);
+      bullets.push("Nevychází tvrdý counter z dat → bezpečný defensivní/outplay item podle lane.");
     }
 
-    if (!correctId) correctId = fallbackAnyCompletedItem();
-
-    const enemyItems = enemyBuild.map(x => x.name).join(", ");
-    const playerItems = playerBuild.map(x => x.name).join(", ");
     const phaseText = phase === "late" ? "late game" : "mid game";
+    let why = `Lane: ${ln}, ${phaseText}. `;
+    if (kind === "armorpen") why += "Enemy je tanky/armor-heavy → bez penetrace nemáš dopad v 5v5.";
+    else if (kind === "antiheal") why += "Enemy sustain přebije výměny → potřebuješ GW.";
+    else if (kind === "antishield") why += "Shield champy negují damage → antishield zvedá value damage.";
+    else if (kind === "anticrit") why += "Crit/AA DPS rozhoduje fight → potřebuješ snížit jejich DPS / přežít burst.";
+    else if (kind === "cleanse") why += "Support vs hard CC pick → Mikael řeší klíčové chycení carry.";
+    else why += "Fallback je lane-appropriate defensivní/outplay item.";
 
-    let why = `Lane: ${lane}, ${phaseText}. Enemy build: ${enemyItems}. Tvůj build: ${playerItems}. `;
-    if (kind === "armorpen") why += "Potřebuješ penetraci, jinak frontu neprosekáš a v 5v5 nemáš damage do tanků/bruiserů.";
-    else if (kind === "antiheal") why += "Potřebuješ antiheal, jinak enemy sustain přebije tvoje výměny a fight se prohraje na delku.";
-    else if (kind === "antishield") why += "Potřebuješ antishield, jinak tvůj damage mizí ve štítech a nedokončíš kill.";
-    else if (kind === "anticrit") why += "Potřebuješ anti-crit/anti-AA, abys přežil DPS carry a dohrál fight.";
-    else if (kind === "cleanse") why += "Mikael dává smysl jen jako support proti hard pick CC, protože cleanse timing rozhoduje fight.";
-    else why += "Bez jasného hard-counteru je správně defensivní/outplay item pro přežití klíčové fáze fightu.";
-
-    return { correctId, kind, why, bullets };
+    return { correctId, why, bullets, kind };
   }
 
+  // Wrong options: nikdy nenabízej support-only itemy mimo support
+  const SUPPORT_ONLY = new Set([
+    riotItemIdByName("Locket of the Iron Solari"),
+    riotItemIdByName("Redemption"),
+    riotItemIdByName("Mikael's Blessing")
+  ]);
+
   function pickWrongChoices(correctId, lane) {
+    const ln = normLane(lane);
     const correct = itemById.get(correctId);
+
     let poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
 
-    const mikaelId = riotItemIdByName("Mikael's Blessing");
-    if (normLane(lane) !== "support" && mikaelId) poolAll = poolAll.filter(i => i.id !== mikaelId);
+    if (ln !== "support") {
+      poolAll = poolAll.filter(i => !SUPPORT_ONLY.has(i.id));
+    }
 
+    // prefer similarly "priced/tagged" wrong items (plausible distractors)
     const correctTags = new Set(correct?.tags ?? []);
     const scored = poolAll.map(i => {
       const price = Math.abs((i.gold||0) - (correct?.gold||0));
@@ -483,7 +520,7 @@
       for (const t of i.tags ?? []) if (correctTags.has(t)) tagOverlap++;
       const score = price - tagOverlap * 150;
       return { i, score };
-    }).sort((a,b)=>a.score-b.score).slice(0, 260).map(x=>x.i);
+    }).sort((a,b)=>a.score-b.score).slice(0, 320).map(x=>x.i);
 
     const out = [];
     while (out.length < 2 && scored.length) {
@@ -513,6 +550,15 @@
     }
   }
 
+  function pickPlayerSlug(candidates) {
+    // avoid repeats
+    const shuffled = shuffle(candidates);
+    for (const s of shuffled) {
+      if (!recentPlayers.includes(s)) return s;
+    }
+    return rand(candidates);
+  }
+
   async function newRound() {
     awaitingNext = false;
     nextBtn.style.display = "none";
@@ -526,67 +572,85 @@
     el("reason").textContent = "";
     el("bullets").innerHTML = "";
 
-    const scenario = rand(SCENARIOS);
-    const { lane, rank, phase, enemySlug } = scenario;
+    for (let tries = 0; tries < 200; tries++) {
+      const scenario = nextScenario();
+      const { lane, rank, phase, enemySlug } = scenario;
+      const ln = normLane(lane);
 
-    const enemyRow = getTopRow(enemySlug, lane, rank, phase);
-    const enemyBuild = getCompletedItemsFromRow(enemyRow, 6);
-    if (enemyBuild.length < 3) return newRound();
+      const enemyRow = getTopRow(enemySlug, ln, rank, phase);
+      if (!enemyRow) continue;
 
-    const enemyChamp = champFromSlug(enemySlug);
+      const enemyBuild = getCompletedItemsFromRow(enemyRow, 6);
+      if (enemyBuild.length < 3) continue;
 
-    const k = `${normLane(lane)}::${rank}::${phase}`;
-    const candidates = (playerCandidates.get(k) || []).filter(s => s !== enemySlug);
-    if (candidates.length === 0) return newRound();
+      const enemyChamp = champFromSlug(enemySlug);
+      if (!laneMatchesChampion(ln, enemyChamp)) continue;
 
-    const playerSlug = rand(candidates);
-    const playerRow = getTopRow(playerSlug, lane, rank, phase);
-    const playerBuild = getCompletedItemsFromRow(playerRow, 6);
-    if (playerBuild.length < 3) return newRound();
+      const k = `${ln}::${rank}::${phase}`;
+      const candidates = (playerCandidates.get(k) || []).filter(s => s !== enemySlug);
+      if (candidates.length === 0) continue;
 
-    const playerChamp = champFromSlug(playerSlug);
+      const playerSlug = pickPlayerSlug(candidates);
+      const playerRow = getTopRow(playerSlug, ln, rank, phase);
+      if (!playerRow) continue;
 
-    // sanity again (should already pass)
-    if (!laneMatchesChampion(normLane(lane), enemyChamp) || !laneMatchesChampion(normLane(lane), playerChamp)) {
-      return newRound();
+      const playerBuild = getCompletedItemsFromRow(playerRow, 6);
+      if (playerBuild.length < 3) continue;
+
+      const playerChamp = champFromSlug(playerSlug);
+      if (!laneMatchesChampion(ln, playerChamp)) continue;
+
+      // avoid repeats
+      if (recentEnemies.includes(enemySlug) || recentPlayers.includes(playerSlug)) continue;
+
+      // UI
+      setChamp("enemy", enemyChamp, `Lane: ${ln} • Rank: ${rank} • Fáze: ${phase}`);
+      setChamp("player", playerChamp, `Lane: ${ln} • Rank: ${rank} • Fáze: ${phase}`);
+
+      renderIcons("enemyBuildIcons", enemyBuild);
+      renderIcons("playerBuildIcons", playerBuild);
+
+      el("enemyBuildInfo").textContent =
+        `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top row exportu)`;
+
+      el("playerBuildInfo").textContent =
+        `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
+
+      // analysis
+      const analysis = counterForScenario({
+        lane: ln, phase,
+        enemyChampId: enemyChamp.id,
+        enemyBuild
+      });
+
+      const correctId = analysis.correctId;
+      const wrongIds = pickWrongChoices(correctId, ln);
+      const ids = shuffle([correctId, ...wrongIds]);
+
+      state.correctId = correctId;
+      state.correctName = itemById.get(correctId)?.name ?? String(correctId);
+      state.why = analysis.why;
+      state.bullets = analysis.bullets;
+
+      // choices
+      for (const id of ids) {
+        const it = itemById.get(id);
+        const btn = document.createElement("button");
+        btn.className = "choice";
+        btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
+        btn.onclick = () => onPick(id);
+        el("choices").appendChild(btn);
+      }
+
+      // record for anti-repeat
+      pushRecent(recentEnemies, enemySlug);
+      pushRecent(recentPlayers, playerSlug);
+
+      return;
     }
 
-    setChamp("enemy", enemyChamp, `Lane: ${normLane(lane)} • Rank: ${rank} • Fáze: ${phase}`);
-    setChamp("player", playerChamp, `Lane: ${normLane(lane)} • Rank: ${rank} • Fáze: ${phase}`);
-
-    renderIcons("enemyBuildIcons", enemyBuild);
-    renderIcons("playerBuildIcons", playerBuild);
-
-    el("enemyBuildInfo").textContent =
-      `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top row exportu)`;
-
-    el("playerBuildInfo").textContent =
-      `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
-
-    const analysis = counterForScenario({
-      lane: normLane(lane), phase,
-      enemyChampId: enemyChamp.id,
-      enemyBuild,
-      playerBuild
-    });
-
-    const correctId = analysis.correctId;
-    const wrongIds = pickWrongChoices(correctId, lane);
-    const ids = shuffle([correctId, ...wrongIds]);
-
-    state.correctId = correctId;
-    state.correctName = itemById.get(correctId)?.name ?? String(correctId);
-    state.why = analysis.why;
-    state.bullets = analysis.bullets;
-
-    for (const id of ids) {
-      const it = itemById.get(id);
-      const btn = document.createElement("button");
-      btn.className = "choice";
-      btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
-      btn.onclick = () => onPick(id);
-      el("choices").appendChild(btn);
-    }
+    // total fallback: just try again
+    return newRound();
   }
 
   function onPick(id) {
@@ -630,4 +694,3 @@
 </script>
 </body>
 </html>
-
