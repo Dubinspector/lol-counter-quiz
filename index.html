@@ -58,6 +58,7 @@
     .analysisBox ul { margin: 8px 0 0 16px; padding: 0; }
     .analysisBox li { margin: 4px 0; }
     #nextBtn { display:none; width:100%; }
+    .select { background:#121212; border:1px solid #2a2a2a; color:#eaeaea; border-radius: 12px; padding: 10px 12px; font-weight:700; }
   </style>
 </head>
 <body>
@@ -67,6 +68,19 @@
     <div class="meta" id="patchMeta">Načítám data…</div>
   </div>
   <div class="bar">
+    <select id="regionSel" class="select" title="Region pro Data Dragon realms">
+      <option value="euw">EUW</option>
+      <option value="eune">EUNE</option>
+      <option value="na">NA</option>
+      <option value="kr">KR</option>
+      <option value="jp">JP</option>
+      <option value="br">BR</option>
+      <option value="la1">LAN</option>
+      <option value="la2">LAS</option>
+      <option value="oce">OCE</option>
+      <option value="tr">TR</option>
+      <option value="ru">RU</option>
+    </select>
     <span class="pill">Skóre: <span id="score">0</span></span>
     <span class="pill">Streak: <span id="streak">0</span></span>
     <button class="primary" id="newBtn">Nové kolo</button>
@@ -123,14 +137,13 @@
 </main>
 
 <footer>
-  Fan-made projekt. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon. Statistiky: LeagueOfGraphs (offline export).
+  Fan-made projekt. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon. Data: offline dataset (LoG nebo Riot Match export).
 </footer>
 
 <script>
 (async function () {
   const patchMetaEl = document.getElementById("patchMeta");
 
-  // Always surface errors (prevents "stuck on loading")
   window.addEventListener("error", (ev) => {
     console.error("window.error:", ev.error || ev.message || ev);
     if (patchMetaEl) patchMetaEl.textContent = "JS chyba: " + (ev.message || "unknown");
@@ -141,7 +154,6 @@
   });
 
   try {
-    // SW should never brick the app
     if ("serviceWorker" in navigator) {
       try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
     }
@@ -151,6 +163,7 @@
     const streakEl = el("streak");
     const newBtn = el("newBtn");
     const nextBtn = el("nextBtn");
+    const regionSel = el("regionSel");
 
     let SCORE = 0;
     let STREAK = 0;
@@ -166,49 +179,52 @@
       return a;
     };
 
-    // ---------- Load export with hard diagnostics ----------
+    // ---- dataset ----
     const dsUrl = new URL("./data/log_builds.json", location.href).toString();
-    console.log("Dataset URL:", dsUrl);
-
-    let resp;
-    try {
-      resp = await fetch(dsUrl, { cache: "no-store" });
-    } catch (e) {
-      console.error("Dataset fetch network error:", e);
-      patchMetaEl.textContent = "Chyba: dataset fetch network error";
-      return;
-    }
-
-    console.log("Dataset fetch status:", resp.status, resp.statusText);
+    const resp = await fetch(dsUrl, { cache: "no-store" });
     if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
-      console.error("Dataset fetch body (first 200):", txt.slice(0, 200));
+      const t = await resp.text().catch(()=> "");
+      console.error("dataset fetch failed:", resp.status, resp.statusText, t.slice(0,200));
       patchMetaEl.textContent = `Chyba: data/log_builds.json (${resp.status})`;
       return;
     }
-
-    let logData;
-    try {
-      logData = await resp.json();
-    } catch (e) {
-      console.error("Dataset JSON parse error:", e);
-      patchMetaEl.textContent = "Chyba: dataset není valid JSON";
-      return;
-    }
-
+    const logData = await resp.json();
     if (!logData || !logData.champions) {
       patchMetaEl.textContent = "Chyba: dataset má špatný formát (chybí .champions)";
       return;
     }
-
     const RANKS = ["silver", "gold"];
 
-    // ---------- Patch pin ----------
-    const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json", { cache: "no-store" }).then(r => r.json());
-    const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
-    const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
+    // ---- get CURRENT patch for assets via realms/<region>.json ----
+    async function getLatestPatchFromRealms(region) {
+      const realmsUrl = `https://ddragon.leagueoflegends.com/realms/${region}.json`;
+      const r = await fetch(realmsUrl, { cache: "no-store" });
+      if (!r.ok) throw new Error(`realms ${region} ${r.status}`);
+      const js = await r.json();
+      if (!js || !js.v) throw new Error("realms missing v");
+      return js.v;
+    }
 
-    // ---------- DDragon: champs ----------
+    // fallback: versions[0]
+    async function getLatestPatchFallback() {
+      const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json", { cache: "no-store" }).then(r => r.json());
+      return versions?.[0] || null;
+    }
+
+    let patch = null;
+    let assetRegion = regionSel.value || "euw";
+    try {
+      patch = await getLatestPatchFromRealms(assetRegion);
+    } catch (e) {
+      console.warn("realms failed, fallback versions:", e);
+      patch = await getLatestPatchFallback();
+    }
+    if (!patch) {
+      patchMetaEl.textContent = "Chyba: nelze zjistit patch pro Data Dragon.";
+      return;
+    }
+
+    // ---- DDragon: champions/items for THIS patch ----
     const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`, { cache: "no-store" }).then(r => r.json());
     const champs = Object.values(champFull.data).map(c => ({
       id: c.id,
@@ -216,16 +232,10 @@
       tags: c.tags || [],
       icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
     }));
-
     const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const champByNormId = new Map();
-    for (const c of champs) champByNormId.set(norm(c.id), c);
+    const champByNormId = new Map(champs.map(c => [norm(c.id), c]));
+    const champFromSlugStrict = (slug) => champByNormId.get(norm(slug)) || null;
 
-    function champFromSlugStrict(slug) {
-      return champByNormId.get(norm(slug)) || null;
-    }
-
-    // ---------- DDragon: items ----------
     const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`, { cache: "no-store" }).then(r => r.json());
     const rawItems = itemJson.data;
     const items = Object.entries(rawItems).map(([id, it]) => ({
@@ -240,7 +250,7 @@
     }));
     const itemById = new Map(items.map(i => [i.id, i]));
 
-    // ---------- Item relevance ----------
+    // ---- item filtering: no potions/wards/trinkets ----
     const HARD_BANNED_ITEM_IDS = new Set([
       2003,2031,2033,2032,
       2055,
@@ -255,15 +265,18 @@
       if (it.requiredChampion) return false;
       if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
       if ((it.gold ?? 0) <= 0) return false;
+
       const tags = new Set(it.tags || []);
       if (tags.has("Consumable")) return false;
       if (tags.has("Trinket")) return false;
+
       const n = (it.name || "").toLowerCase();
       if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
+
       return !!it.icon;
     }
 
-    // ---------- LoG -> Riot item mapping (STRICT) ----------
+    // ---- LoG name -> Riot item (STRICT) ----
     const normalizeName = (s) =>
       (s || "")
         .toLowerCase()
@@ -294,7 +307,7 @@
       return itemByNormName.get(normalizeName(name))?.id ?? null;
     }
 
-    // ---------- UI helpers ----------
+    // ---- UI helpers ----
     function setChamp(side, champ, extra) {
       el(`${side}Icon`).src = champ.icon;
       el(`${side}Icon`).alt = champ.name;
@@ -316,7 +329,7 @@
       }
     }
 
-    // ---------- Export access ----------
+    // ---- export access ----
     function getRows(slug, laneRaw, rank, phase) {
       const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
       if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -355,7 +368,7 @@
       return s;
     }
 
-    // ---------- Stage gating ----------
+    // ---- stage gating ----
     function isComponent(it) { return (it.depth || 0) <= 2 && (it.gold || 0) <= 1600; }
     function isCompleted(it) { return (it.depth || 0) >= 3 || (it.gold || 0) >= 2200; }
     function buildGold(itemsList) { return (itemsList || []).reduce((s, it) => s + (it?.gold || 0), 0); }
@@ -378,7 +391,7 @@
       return poolItems.filter(it => isCompleted(it) && (it.gold || 0) >= 2200);
     }
 
-    // ---------- Player pool from export ----------
+    // ---- pool from export ----
     const POOL_TOP_N_ROWS = 18;
     function getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase) {
       const rows = getRows(playerSlug, laneRaw, rank, phase);
@@ -404,12 +417,11 @@
         if (!it || !isRelevantItem(it)) continue;
         all.push(it);
       }
-
       all.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
       return all;
     }
 
-    // ---------- Tier matching ----------
+    // ---- tier buckets for distractors ----
     function tierBucket(it) {
       const g = it.gold || 0;
       const d = it.depth || 0;
@@ -458,7 +470,7 @@
       return out.length === 2 ? out : null;
     }
 
-    // ---------- Counter scoring ----------
+    // ---- counter scoring (heuristic) ----
     function buildEnemySignals(enemyItems) {
       const names = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
       const armorCount = enemyItems.filter(it => (it.tags||[]).includes("Armor")).length;
@@ -513,16 +525,13 @@
       const isSupportish = nm.includes("mikael") || nm.includes("locket") || nm.includes("redemption");
       if (isSupportish && kind !== "SUPPORT") score -= 8;
 
-      // Mage sanity: prevent bruiser/AD-only items as "correct" for pure mages
+      // “Brand nikdy nehraje Black Cleaver” – tohle se má řešit datasetem.
+      // Tady jen pojistka: čistý Mage nesmí preferovat AD bruiser itemy.
       if (pTags.has("Mage") && !pTags.has("Fighter") && !pTags.has("Marksman")) {
         const hasDamage = t.has("Damage");
         const hasSpell = t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction");
         if (hasDamage && !hasSpell) score -= 8;
       }
-
-      if (pTags.has("Tank") && (t.has("Health") || t.has("Armor") || t.has("MagicResist"))) score += 0.6;
-      if (pTags.has("Mage") && (t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction"))) score += 0.6;
-      if (pTags.has("Marksman") && (t.has("CriticalStrike") || t.has("AttackSpeed") || t.has("Damage"))) score += 0.6;
 
       const ph = (phase || "").toLowerCase();
       if (ph.includes("early")) {
@@ -537,7 +546,7 @@
       return score;
     }
 
-    // ---------- Build scenarios ----------
+    // ---- scenarios from dataset (ground truth keys) ----
     const allSlugs = Object.keys(logData.champions || {});
     const scenariosByBucket = new Map(); // early/mid/late -> scenarios
     const scenariosByLane = new Map();
@@ -576,25 +585,26 @@
     }
 
     if (totalScenarios === 0) {
-      patchMetaEl.textContent = "Chyba: žádné scénáře v exportu po filtrech";
+      patchMetaEl.textContent = "Chyba: žádné scénáře v datasetu po mapování itemů.";
       return;
     }
 
+    const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "unknown");
     const laneLines = [...scenariosByLane.entries()]
       .sort((a,b)=>b[1].length-a[1].length)
       .map(([l,a])=>`${l}:${a.length}`);
-
     const eCount = scenariosByBucket.get("early")?.length || 0;
     const mCount = scenariosByBucket.get("mid")?.length || 0;
     const lCount = scenariosByBucket.get("late")?.length || 0;
 
     patchMetaEl.textContent =
-      `Patch: ${patch} • Dataset: data/log_builds.json\n` +
+      `Assets patch (Riot realms/${assetRegion}): ${patch}\n` +
+      `Dataset patch: ${datasetPatch}\n` +
       `Scénáře: ${totalScenarios}\n` +
       `Fáze: early:${eCount} | mid:${mCount} | late:${lCount}\n` +
       `Lane: ${laneLines.join(" | ")}`;
 
-    // forced phase cycle: early -> mid -> late -> repeat
+    // ---- forced phase cycle ----
     const phaseCycle = ["early","mid","late"];
     let phaseIdx = 0;
     function pickPhaseForced() {
@@ -607,7 +617,7 @@
       return keys.length ? rand(keys) : "mid";
     }
 
-    // bag per (bucket,lane) for enemies
+    // ---- enemy bag per (bucket,lane) ----
     const laneBagByBucket = new Map();
     function nextScenario() {
       const bucket = pickPhaseForced();
@@ -633,7 +643,7 @@
       return m.get(laneRaw).pop();
     }
 
-    // anti-repeat + player bag per key
+    // ---- anti-repeat + player bag per key ----
     const RECENT_N = 25;
     const recentEnemies = [];
     const recentPlayers = [];
@@ -710,15 +720,13 @@
         const playerChamp = champFromSlugStrict(playerSlug);
         if (!playerChamp) continue;
 
-        if (recentPlayers.length && recentPlayers[recentPlayers.length - 1] === playerSlug) continue;
-
         const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
         if (!playerRow) continue;
 
         const playerItems = getRelevantItemsFromRow(playerRow, 6);
         if (!playerItems || playerItems.length < 1) continue;
 
-        // phase/build consistency gate
+        // phase/build consistency
         const expectedStage = phaseBucket(phase);
         const enemyStage = buildStageFromItems(enemyItems);
         const playerStage = buildStageFromItems(playerItems);
@@ -733,12 +741,7 @@
         let pool = poolRaw.filter(it => !owned.has(it.id));
         pool = filterPoolByStage(pool, expectedStage);
 
-        if (pool.length < 3) {
-          const ownedLite = new Set((playerItems || []).slice(0, 3).map(x => x.id));
-          pool = poolRaw.filter(it => !ownedLite.has(it.id));
-          pool = filterPoolByStage(pool, expectedStage);
-          if (pool.length < 3) continue;
-        }
+        if (pool.length < 3) continue; // strict: reroll
 
         let best = null;
         let bestScore = -1e9;
@@ -754,39 +757,34 @@
 
         const ids = shuffle([correctId, ...wrongIds]);
         if (new Set(ids).size !== 3) continue;
-        if (ids.some(id => !itemById.get(id))) continue;
         if (ids.some(id => owned.has(id))) continue;
 
+        // UI
         setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
         setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
 
         renderIcons("enemyBuildIcons", enemyItems);
         renderIcons("playerBuildIcons", playerItems);
 
-        el("enemyBuildInfo").textContent =
-          `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top row exportu)`;
-
-        el("playerBuildInfo").textContent =
-          `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
+        el("enemyBuildInfo").textContent = `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}%`;
+        el("playerBuildInfo").textContent = `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}%`;
 
         const chosenName = itemById.get(correctId)?.name || "—";
         const enemyList = enemyItems.map(x=>x.name).join(", ");
         const playerList = playerItems.map(x=>x.name).join(", ");
-        const sig = buildEnemySignals(enemyItems);
-        const bullets = [];
 
-        if (GW_IDS.has(correctId) && sig.hasLifesteal) bullets.push("Oponent má sustain/lifesteal → GW zmenší heal a přetlačí trades.");
+        const bullets = [];
+        const sig = buildEnemySignals(enemyItems);
+
+        if (GW_IDS.has(correctId) && sig.hasLifesteal) bullets.push("Oponent má sustain/lifesteal → GW zmenší heal.");
         if (ARMOR_PEN_IDS.has(correctId) && sig.armorHeavy) bullets.push("Oponent má více armor itemů → bez pen/shredu mu neublížíš.");
         if (ANTI_SHIELD_IDS.has(correctId) && sig.hasShields) bullets.push("Oponent má shield itemy → Serpent’s Fang snižuje efektivní HP.");
-        if (ANTI_CRIT_IDS.has(correctId) && sig.hasCrit) bullets.push("Oponent má crit/AA DPS → Randuin/Frozen Heart sníží jeho DPS.");
-        if (bullets.length === 0) bullets.push("Z tvého reálně hraného poolu (export) je to nejlepší odpověď na profil enemy itemů v této fázi.");
+        if (ANTI_CRIT_IDS.has(correctId) && sig.hasCrit) bullets.push("Oponent má crit DPS → Randuin/Frozen Heart sníží jeho DPS.");
+        if (bullets.length === 0) bullets.push("Z tvého reálně hraného poolu (dataset) je to nejlepší odpověď na profil enemy itemů.");
 
         state.correctId = correctId;
         state.correctName = chosenName;
-        state.why =
-          `Fáze: ${phase} (gate: ${expectedStage}). Enemy itemy: ${enemyList}. Ty (top build): ${playerList}. ` +
-          `Volby jsou jen z poolu itemů, které tvůj champion v této situaci reálně hraje (top ${POOL_TOP_N_ROWS} řádků exportu). ` +
-          `Stejný tier/layer pro danou fázi. Nikdy se nenabízí item, který už máš.`;
+        state.why = `Enemy: ${enemyList}. Ty: ${playerList}. Volby jsou pouze z poolu tvého champa pro tento lane/rank/phase a ve stejném tieru jako fáze.`;
         state.bullets = bullets;
 
         el("choices").innerHTML = "";
@@ -804,7 +802,7 @@
         return;
       }
 
-      el("result").textContent = "Chyba: nelze vygenerovat validní kolo (dataset/filtry).";
+      el("result").textContent = "Chyba: nelze vygenerovat validní kolo (dataset/filtry/mapování itemů).";
       el("result").className = "result bad";
     }
 
@@ -832,7 +830,6 @@
       streakEl.textContent = String(STREAK);
 
       renderAnalysis();
-
       nextBtn.style.display = "inline-block";
       nextBtn.disabled = false;
     }
@@ -840,7 +837,11 @@
     newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
     nextBtn.addEventListener("click", () => newRound());
 
+    // region change: reload whole page to refresh assets patch
+    regionSel.addEventListener("change", () => location.reload());
+
     await newRound();
+
   } catch (e) {
     console.error("FATAL:", e);
     if (patchMetaEl) patchMetaEl.textContent = "FATAL: " + (e?.message || String(e));
