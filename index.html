@@ -67,16 +67,10 @@
 
     #nextBtn { display:none; width:100%; }
 
-    /* controls */
     .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .ctrl {
-      display:flex; flex-direction:column; gap:4px;
-      min-width: 160px;
-    }
+    .ctrl { display:flex; flex-direction:column; gap:4px; min-width: 160px; }
     .ctrl label { font-size: 11px; color:#bdbdbd; }
-    select, input[type="checkbox"] {
-      accent-color: #888;
-    }
+    select, input[type="checkbox"] { accent-color: #888; }
     select {
       border-radius: 12px;
       border:1px solid #2a2a2a;
@@ -86,9 +80,7 @@
       font-weight: 700;
       max-width: 100%;
     }
-    .ctrlRow {
-      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
-    }
+    .ctrlRow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .chk {
       display:flex; gap:8px; align-items:center;
       padding: 10px 12px;
@@ -115,7 +107,7 @@
     </div>
 
     <div class="ctrl">
-      <label for="champSel">Tvůj champion (volitelné zamknutí)</label>
+      <label for="champSel">Tvůj champion (nezávisle na lince)</label>
       <select id="champSel"></select>
     </div>
 
@@ -239,7 +231,6 @@
     tags: c.tags || [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
-  const champById = new Map(champs.map(c => [c.id.toLowerCase(), c]));
 
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
@@ -250,12 +241,10 @@
     tags: it.tags ?? [],
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`,
     depth: it.depth ?? 0,
-    into: it.into ?? [],
     requiredChampion: it.requiredChampion ?? null,
     inStore: it.inStore !== false
   }));
   const itemById = new Map(items.map(i => [i.id, i]));
-  const itemByNormName = new Map();
 
   // ---------- Item relevance (no potions/wards/trinkets) ----------
   const HARD_BANNED_ITEM_IDS = new Set([
@@ -283,7 +272,7 @@
     return !!it.icon;
   }
 
-  // ---------- Legacy name mapping support (keeps backward compatibility) ----------
+  // name normalization (legacy compatibility)
   const normalizeName = (s) =>
     (s || "")
       .toLowerCase()
@@ -292,6 +281,7 @@
       .replace(/[^a-z0-9]+/g, "")
       .trim();
 
+  const itemByNormName = new Map();
   for (const it of items) itemByNormName.set(normalizeName(it.name), it);
 
   const NAME_ALIASES = new Map([
@@ -354,11 +344,10 @@
     return rows ? rows[0] : null;
   }
 
-  // IMPORTANT: supports Riot dataset items {id} and legacy {name}
+  // supports Riot dataset items {id} and legacy {name}
   function getRelevantItemsFromRow(row, max = 6) {
     const out = [];
     for (const x of (row?.items || [])) {
-      // Riot dataset: {id}
       if (x?.id) {
         const it = itemById.get(Number(x.id));
         if (!isRelevantItem(it)) continue;
@@ -366,8 +355,6 @@
         if (out.length >= max) break;
         continue;
       }
-
-      // Legacy: {name}
       const mapped = getRiotItemByLoGName(x?.name);
       if (!mapped) continue;
       const it = itemById.get(mapped.id);
@@ -534,7 +521,6 @@
     const t = new Set(candidateItem.tags || []);
 
     let score = 0;
-
     if (sig.hasLifesteal && GW_IDS.has(id)) score += 6;
     if (sig.armorHeavy && ARMOR_PEN_IDS.has(id)) score += 5;
     if (sig.hasShields && ANTI_SHIELD_IDS.has(id)) score += 4.5;
@@ -560,14 +546,13 @@
     return score;
   }
 
-  // ---------- Build scenario index from dataset ----------
+  // ---------- Scenario index from dataset ----------
   const allSlugs = Object.keys(logData.champions || {});
-
-  const scenariosByPhase = new Map(); // phase -> sc[]
-  const scenariosByLane = new Map();  // lane -> sc[]
-  const scenariosByKey = new Map();   // lane::rank::phase -> sc[] (enemySlug only)
-  const ranksByLanePhase = new Map(); // lane::phase -> Set(rank)
-  const champsByLane = new Map();     // lane -> Set(slug)
+  const scenariosByPhase = new Map();
+  const scenariosByLane = new Map();
+  const scenariosByKey = new Map();
+  const ranksByLanePhase = new Map();
+  const champsByLane = new Map();
   let totalScenarios = 0;
 
   for (const enemySlug of allSlugs) {
@@ -619,7 +604,7 @@
     `Fáze: ${phaseLines.join(" | ")}\n` +
     `Lane: ${laneLines.join(" | ")}`;
 
-  // ---------- UI: populate lane + champ selectors (ONLY from dataset) ----------
+  // ---------- UI: populate selectors ----------
   const availableLanes = [...scenariosByLane.keys()].sort((a,b)=>a.localeCompare(b));
   const makeOpt = (val, txt) => {
     const o = document.createElement("option");
@@ -632,18 +617,9 @@
   laneSel.appendChild(makeOpt("__any__", "Náhodně"));
   for (const l of availableLanes) laneSel.appendChild(makeOpt(l, l));
 
-  function getChampsForLane(laneRawOrAny) {
-    if (laneRawOrAny === "__any__") return allSlugs.slice();
-    const s = champsByLane.get(laneRawOrAny);
-    return s ? [...s] : [];
-  }
-
+  // champion selector is independent of lane
   function populateChampSelect() {
-    const lanePick = laneSel.value || "__any__";
-    const slugs = getChampsForLane(lanePick);
-
-    // only champs that exist in dataset; sort by display name if possible
-    const sorted = slugs
+    const sorted = allSlugs
       .map(slug => {
         const c = champFromSlug(slug);
         return { slug, name: c?.name || slug };
@@ -661,7 +637,7 @@
 
   populateChampSelect();
 
-  // ---------- Fair phase rotation (bag) ----------
+  // ---------- Fair phase rotation ----------
   const phaseList = [...scenariosByPhase.keys()];
   const resetBag = () => shuffle(phaseList);
   let phaseBag = resetBag();
@@ -672,16 +648,13 @@
 
   // per (phase,lane) bags
   const laneBagByPhase = new Map();
-
   function nextScenarioAny(phase, forcedLane) {
     const list = scenariosByPhase.get(phase) || [];
     if (!list.length) return null;
 
-    // lane filter
     const filtered = forcedLane ? list.filter(sc => sc.laneRaw === forcedLane) : list;
     if (!filtered.length) return null;
 
-    // split by lane
     const lanes = new Map();
     for (const sc of filtered) {
       if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
@@ -701,7 +674,7 @@
     return m.get(laneRaw).pop();
   }
 
-  // anti-repeat
+  // anti-repeat enemies
   const RECENT_N = 10;
   const recentEnemies = [];
   const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
@@ -724,7 +697,6 @@
     }
   }
 
-  // ---------- Round generation with optional locks ----------
   function getLockedLaneOrNull() {
     if (!lockLaneEl.checked) return null;
     const v = laneSel.value;
@@ -737,11 +709,6 @@
     const v = champSel.value;
     if (!v || v === "__any__") return null;
     return v;
-  }
-
-  function getRanksFor(laneRaw, phase) {
-    const s = ranksByLanePhase.get(`${laneRaw}::${phase}`);
-    return s ? [...s] : [];
   }
 
   async function newRound() {
@@ -760,38 +727,25 @@
     const lockedLane = getLockedLaneOrNull();
     const lockedPlayerSlug = getLockedPlayerSlugOrNull();
 
-    for (let tries = 0; tries < 2500; tries++) {
+    // if both locked and champ has no lane data, fail fast
+    if (lockedPlayerSlug && lockedLane) {
+      const laneObj = logData?.champions?.[lockedPlayerSlug]?.[lockedLane];
+      if (!laneObj || Object.keys(laneObj).length === 0) {
+        el("result").textContent = "Pro zvoleného champa nejsou data na zvolené lince. Odemkni lane nebo změň champa.";
+        el("result").className = "result bad";
+        return;
+      }
+    }
+
+    for (let tries = 0; tries < 3500; tries++) {
       const phase = pickPhaseFair();
 
-      // choose a scenario (enemy candidate) respecting locked lane
+      // scenario (enemy) is always lane-consistent; lockedLane forces lane
       const sc = nextScenarioAny(phase, lockedLane);
       if (!sc) continue;
 
       let { laneRaw, rank, enemySlug } = sc;
       if (lockedLane && laneRaw !== lockedLane) continue;
-
-      // if champ locked, force player slug and ensure it exists for lane/rank/phase
-      let playerSlug = null;
-
-      if (lockedPlayerSlug) {
-        playerSlug = lockedPlayerSlug;
-
-        // if lane is not locked, force lane to be one where this champ has data; we already picked sc, so validate:
-        const playerRowCheck = getTopRow(playerSlug, laneRaw, rank, phase);
-        if (!playerRowCheck) continue;
-
-        // enemy must not equal player
-        if (enemySlug === playerSlug) continue;
-      } else {
-        // pick player from same key
-        const k = `${laneRaw}::${rank}::${phase}`;
-        const slugsInKey = scenariosByKey.get(k)?.map(x => x.enemySlug) || [];
-        const candidatePlayers = [...new Set(slugsInKey)].filter(s => s !== enemySlug);
-        if (!candidatePlayers.length) continue;
-        playerSlug = rand(candidatePlayers);
-      }
-
-      // reduce spam repeats
       if (recentEnemies.includes(enemySlug)) continue;
 
       const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
@@ -799,6 +753,26 @@
 
       const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
       if (!enemyItems || enemyItems.length < 1) continue;
+
+      // choose player champ:
+      // - if locked champ: always use it, independent of lane
+      // - else choose from same key
+      let playerSlug = null;
+
+      if (lockedPlayerSlug) {
+        playerSlug = lockedPlayerSlug;
+        if (playerSlug === enemySlug) continue;
+
+        // IMPORTANT: player items must come from THIS laneRaw/rank/phase
+        const playerRowCheck = getTopRow(playerSlug, laneRaw, rank, phase);
+        if (!playerRowCheck) continue;
+      } else {
+        const k = `${laneRaw}::${rank}::${phase}`;
+        const slugsInKey = scenariosByKey.get(k)?.map(x => x.enemySlug) || [];
+        const candidatePlayers = [...new Set(slugsInKey)].filter(s => s !== enemySlug);
+        if (!candidatePlayers.length) continue;
+        playerSlug = rand(candidatePlayers);
+      }
 
       const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
       if (!playerRow) continue;
@@ -808,7 +782,6 @@
 
       const owned = itemIdSet(playerItems);
 
-      // pool from dataset, then remove owned items so never offer duplicates
       const poolItemsRaw = getPlayerPoolFromDataset(playerSlug, laneRaw, rank, phase);
       if (!poolItemsRaw) continue;
       const poolItems = poolItemsRaw.filter(it => !owned.has(it.id));
@@ -817,7 +790,7 @@
       const enemyChamp = champFromSlug(enemySlug);
       const playerChamp = champFromSlug(playerSlug);
 
-      // choose correct by argmax over poolItems (not owned)
+      // correct from player pool
       let best = null;
       let bestScore = -1e9;
       for (const it of poolItems) {
@@ -827,8 +800,6 @@
       if (!best) continue;
 
       const correctId = best.id;
-
-      // distractors from same pool (not owned), similar tier
       const wrongIds = pickTwoDistractorsFromPool(poolItems, correctId);
       if (!wrongIds) continue;
 
@@ -870,7 +841,7 @@
         `Reálná situace z datasetu. ${lockText}.` +
         ` Lane: ${laneRaw}, fáze: ${phase}.` +
         ` Enemy: ${enemyList}. Ty: ${playerList}.` +
-        ` Volby jsou pouze z poolu itemů, které tvůj champion v tomhle bucketu opravdu kupuje, a nikdy se nenabízí item, který už máš.`;
+        ` Volby jsou pouze z poolu itemů, které tvůj champion v tomhle lane/rank/phase opravdu kupuje, a nikdy se nenabízí item, který už máš.`;
       state.bullets = bullets;
 
       el("choices").innerHTML = "";
@@ -920,9 +891,8 @@
     nextBtn.disabled = false;
   }
 
-  // ---------- Control events ----------
+  // events: lane change does NOT affect champ list anymore
   laneSel.addEventListener("change", () => {
-    populateChampSelect();
     if (!awaitingNext) newRound();
   });
 
