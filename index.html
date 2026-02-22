@@ -6,6 +6,7 @@
   <title>LoL Counter Item Quiz</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#111111">
+  <link rel="icon" href="data:,">
   <style>
     :root { --pad: 14px; }
     body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0b0b0b; color:#f1f1f1; }
@@ -127,729 +128,723 @@
 
 <script>
 (async function () {
-  // SW nesmí zablokovat appku
-  if ("serviceWorker" in navigator) {
-    try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
-  }
+  const patchMetaEl = document.getElementById("patchMeta");
 
-  const el = (id) => document.getElementById(id);
-  const patchMeta = el("patchMeta");
-  const scoreEl = el("score");
-  const streakEl = el("streak");
-  const newBtn = el("newBtn");
-  const nextBtn = el("nextBtn");
+  // Always surface errors (prevents "stuck on loading")
+  window.addEventListener("error", (ev) => {
+    console.error("window.error:", ev.error || ev.message || ev);
+    if (patchMetaEl) patchMetaEl.textContent = "JS chyba: " + (ev.message || "unknown");
+  });
+  window.addEventListener("unhandledrejection", (ev) => {
+    console.error("unhandledrejection:", ev.reason);
+    if (patchMetaEl) patchMetaEl.textContent = "Promise chyba: " + (ev.reason?.message || String(ev.reason));
+  });
 
-  let SCORE = 0;
-  let STREAK = 0;
-  let awaitingNext = false;
-
-  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const shuffle = (arr) => {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  };
-
-  // ---------- Load export ----------
-  let logData;
   try {
-    logData = await fetch("./data/log_builds.json", { cache: "no-store" }).then(r => r.json());
-  } catch (e) {
-    patchMeta.textContent = "Chyba: nelze načíst data/log_builds.json (404).";
-    throw e;
-  }
-  if (!logData || !logData.champions) {
-    patchMeta.textContent = "Chyba: data/log_builds.json má špatný formát (chybí .champions).";
-    throw new Error("Bad log_builds.json format");
-  }
-
-  const RANKS = ["silver","gold"];
-
-  // ---------- Patch pin ----------
-  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json", { cache: "no-store" }).then(r => r.json());
-  const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
-  const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
-
-  // ---------- DDragon: champs ----------
-  const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`, { cache: "no-store" }).then(r => r.json());
-  const champs = Object.values(champFull.data).map(c => ({
-    id: c.id,
-    name: c.name,
-    tags: c.tags || [],
-    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
-  }));
-
-  // STRICT: pokud slug nelze mapovat na champion ID, scénář zahodit (žádný random fallback)
-  const champByNormId = new Map();
-  const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  for (const c of champs) champByNormId.set(norm(c.id), c);
-
-  function champFromSlugStrict(slug) {
-    const c = champByNormId.get(norm(slug));
-    return c || null;
-  }
-
-  // ---------- DDragon: items ----------
-  const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`, { cache: "no-store" }).then(r => r.json());
-  const rawItems = itemJson.data;
-  const items = Object.entries(rawItems).map(([id, it]) => ({
-    id: Number(id),
-    name: it.name,
-    gold: it.gold?.total ?? 0,
-    tags: it.tags ?? [],
-    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`,
-    depth: it.depth ?? 0,
-    requiredChampion: it.requiredChampion ?? null,
-    inStore: it.inStore !== false
-  }));
-  const itemById = new Map(items.map(i => [i.id, i]));
-
-  // ---------- Item relevance (no potions/wards/trinkets) ----------
-  const HARD_BANNED_ITEM_IDS = new Set([
-    2003,2031,2033,2032, // potions/biscuits
-    2055,               // control ward
-    3340,3363,3364,     // trinkets
-    2010,2015,2019,2021,
-    2051,2052,2138,2139,2140
-  ]);
-
-  function isRelevantItem(it) {
-    if (!it) return false;
-    if (!it.inStore) return false;
-    if (it.requiredChampion) return false;
-    if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
-    if ((it.gold ?? 0) <= 0) return false;
-
-    const tags = new Set(it.tags || []);
-    if (tags.has("Consumable")) return false;
-    if (tags.has("Trinket")) return false;
-
-    const n = (it.name || "").toLowerCase();
-    if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
-
-    return !!it.icon;
-  }
-
-  // ---------- LoG -> Riot item mapping (STRICT, no fuzzy) ----------
-  const normalizeName = (s) =>
-    (s || "")
-      .toLowerCase()
-      .replace(/&/g, "and")
-      .replace(/[’'`"]/g, "")
-      .replace(/[^a-z0-9]+/g, "")
-      .trim();
-
-  const itemByNormName = new Map();
-  for (const it of items) itemByNormName.set(normalizeName(it.name), it);
-
-  const NAME_ALIASES = new Map([
-    [normalizeName("Lord Dominik's Regards"), normalizeName("Lord Dominiks Regards")],
-    [normalizeName("Zhonya's Hourglass"), normalizeName("Zhonyas Hourglass")]
-  ]);
-
-  function getRiotItemByLoGName(logName) {
-    const n = normalizeName(logName);
-    if (itemByNormName.has(n)) return itemByNormName.get(n);
-    for (const [a, b] of NAME_ALIASES.entries()) {
-      if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
-      if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
+    // SW should never brick the app
+    if ("serviceWorker" in navigator) {
+      try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
     }
-    return null;
-  }
 
-  function riotItemIdByName(name) {
-    return itemByNormName.get(normalizeName(name))?.id ?? null;
-  }
+    const el = (id) => document.getElementById(id);
+    const scoreEl = el("score");
+    const streakEl = el("streak");
+    const newBtn = el("newBtn");
+    const nextBtn = el("nextBtn");
 
-  // ---------- UI helpers ----------
-  function setChamp(side, champ, extra) {
-    el(`${side}Icon`).src = champ.icon;
-    el(`${side}Icon`).alt = champ.name;
-    el(`${side}Name`).textContent = champ.name;
-    el(`${side}Info`).textContent = extra;
-  }
+    let SCORE = 0;
+    let STREAK = 0;
+    let awaitingNext = false;
 
-  function renderIcons(containerId, itemList) {
-    const wrap = el(containerId);
-    wrap.innerHTML = "";
-    for (const it of (itemList || [])) {
-      const img = document.createElement("img");
-      img.className = "mini";
-      img.alt = it.name;
-      img.title = it.name;
-      img.src = it.icon + `?v=${Date.now()}`;
-      img.onerror = () => img.remove();
-      wrap.appendChild(img);
-    }
-  }
-
-  // ---------- Export access ----------
-  function getRows(slug, laneRaw, rank, phase) {
-    const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    return rows;
-  }
-
-  function getTopRow(slug, laneRaw, rank, phase) {
-    const rows = getRows(slug, laneRaw, rank, phase);
-    return rows ? rows[0] : null;
-  }
-
-  function getRelevantItemsFromRow(row, max = 6) {
-    const out = [];
-    for (const x of (row?.items || [])) {
-      const mapped = getRiotItemByLoGName(x?.name);
-      if (!mapped) continue;
-      const it = itemById.get(mapped.id);
-      if (!isRelevantItem(it)) continue;
-      out.push(it);
-      if (out.length >= max) break;
-    }
-    return out;
-  }
-
-  function parsePct(x) {
-    if (x == null) return 0;
-    if (typeof x === "number") return x;
-    const s = String(x).trim().replace("%", "");
-    const v = Number(s);
-    return Number.isFinite(v) ? v : 0;
-  }
-
-  function itemIdSet(list) {
-    const s = new Set();
-    for (const it of (list || [])) s.add(it.id);
-    return s;
-  }
-
-  // ---------- Stage gating: early/mid/late musí odpovídat "ceně/tieru" buildu ----------
-  function isComponent(it) {
-    return (it.depth || 0) <= 2 && (it.gold || 0) <= 1600;
-  }
-  function isCompleted(it) {
-    return (it.depth || 0) >= 3 || (it.gold || 0) >= 2200;
-  }
-  function buildGold(itemsList) {
-    return (itemsList || []).reduce((s, it) => s + (it?.gold || 0), 0);
-  }
-  function buildStageFromItems(itemsList) {
-    const completed = (itemsList || []).filter(isCompleted).length;
-    const gold = buildGold(itemsList);
-    if (completed >= 3 || gold >= 8500) return "late";
-    if (completed >= 1 || gold >= 3500) return "mid";
-    return "early";
-  }
-  function phaseBucket(phaseStr) {
-    const p = (phaseStr || "").toLowerCase();
-    if (p.includes("early")) return "early";
-    if (p.includes("late")) return "late";
-    return "mid";
-  }
-
-  function filterPoolByStage(poolItems, stage) {
-    if (stage === "early") {
-      // early: komponenty + levné věci
-      return poolItems.filter(it => isComponent(it));
-    }
-    if (stage === "mid") {
-      // mid: komponenty + 1. completed do ~3200
-      return poolItems.filter(it => (it.gold || 0) >= 700 && (it.gold || 0) <= 3200);
-    }
-    // late: jen completed
-    return poolItems.filter(it => isCompleted(it) && (it.gold || 0) >= 2200);
-  }
-
-  // ---------- Pool from export (relaxed, ale pouze z daného champa + lane + rank + phase) ----------
-  const POOL_TOP_N_ROWS = 18;
-
-  function getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase) {
-    const rows = getRows(playerSlug, laneRaw, rank, phase);
-    if (!rows) return null;
-
-    const lim = Math.min(POOL_TOP_N_ROWS, rows.length);
-    const weightByItemId = new Map();
-
-    for (let i = 0; i < lim; i++) {
-      const row = rows[i];
-      const rowPick = parsePct(row?.pickRate);
-      const w = rowPick > 0 ? rowPick : (1.0 / (i + 1));
-
-      const itemsList = getRelevantItemsFromRow(row, 6) || [];
-      for (const it of itemsList) {
-        if (!isRelevantItem(it)) continue;
-        weightByItemId.set(it.id, (weightByItemId.get(it.id) || 0) + w);
+    const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    const shuffle = (arr) => {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
       }
-    }
-
-    const all = [];
-    for (const [id] of weightByItemId.entries()) {
-      const it = itemById.get(id);
-      if (!it || !isRelevantItem(it)) continue;
-      all.push(it);
-    }
-
-    all.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
-    return all;
-  }
-
-  // ---------- Tier matching (pro 3 volby podobné hodnoty) ----------
-  function tierBucket(it) {
-    const g = it.gold || 0;
-    const d = it.depth || 0;
-
-    let band = 0;
-    if (g <= 500) band = 0;
-    else if (g <= 900) band = 1;
-    else if (g <= 1400) band = 2;
-    else if (g <= 2000) band = 3;
-    else if (g <= 2600) band = 4;
-    else if (g <= 3200) band = 5;
-    else band = 6;
-
-    let depthBand = 0;
-    if (d <= 1) depthBand = 0;
-    else if (d === 2) depthBand = 1;
-    else if (d === 3) depthBand = 2;
-    else depthBand = 3;
-
-    return `${band}::${depthBand}`;
-  }
-
-  function pickTwoDistractorsFromPool(poolItems, correctId) {
-    const correct = itemById.get(correctId);
-    if (!correct) return null;
-
-    const ctier = tierBucket(correct);
-    const cgold = correct.gold || 0;
-    const cdepth = correct.depth || 0;
-
-    let candidates = poolItems.filter(it => it.id !== correctId && tierBucket(it) === ctier);
-
-    if (candidates.length < 4) {
-      candidates = poolItems.filter(it =>
-        it.id !== correctId &&
-        Math.abs((it.gold||0) - cgold) <= 600 &&
-        Math.abs((it.depth||0) - cdepth) <= 1
-      );
-    }
-
-    if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
-
-    candidates = shuffle(candidates);
-    const out = [];
-    for (const it of candidates) {
-      if (out.length >= 2) break;
-      out.push(it.id);
-    }
-    return out.length === 2 ? out : null;
-  }
-
-  // ---------- Counter scoring ----------
-  function buildEnemySignals(enemyItems) {
-    const names = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
-    const armorCount = enemyItems.filter(it => (it.tags||[]).includes("Armor")).length;
-    const mrCount = enemyItems.filter(it => (it.tags||[]).includes("MagicResist")).length;
-
-    const hasShields = names.includes("sterak") || names.includes("seraph") || names.includes("immortal shieldbow");
-    const hasLifesteal = names.includes("bloodthirst") || names.includes("ravenous") || names.includes("blade of the ruined king") || names.includes("riftmaker") || names.includes("vamp");
-    const hasCrit = names.includes("infinity edge") || names.includes("phantom dancer") || names.includes("rapid firecannon") || names.includes("statikk") || names.includes("navori") || names.includes("the collector");
-
-    return {
-      armorHeavy: armorCount >= 2,
-      mrHeavy: mrCount >= 2,
-      hasLifesteal,
-      hasShields,
-      hasCrit
+      return a;
     };
-  }
 
-  const GW_IDS = new Set([
-    riotItemIdByName("Morellonomicon"),
-    riotItemIdByName("Mortal Reminder"),
-    riotItemIdByName("Thornmail"),
-    riotItemIdByName("Chempunk Chainsword")
-  ].filter(Boolean));
-
-  const ARMOR_PEN_IDS = new Set([
-    riotItemIdByName("Lord Dominik's Regards"),
-    riotItemIdByName("Serylda's Grudge"),
-    riotItemIdByName("Black Cleaver"),
-    riotItemIdByName("Terminus")
-  ].filter(Boolean));
-
-  const ANTI_SHIELD_IDS = new Set([riotItemIdByName("Serpent's Fang")].filter(Boolean));
-  const ANTI_CRIT_IDS = new Set([riotItemIdByName("Randuin's Omen"), riotItemIdByName("Frozen Heart")].filter(Boolean));
-
-  function laneKind(laneRaw) {
-    const x = (laneRaw || "").toLowerCase().trim();
-    if (x.includes("support") || x === "supp") return "SUPPORT";
-    if (x === "adc" || x.includes("bot") || x.includes("bottom")) return "ADC";
-    if (x.includes("jungle") || x === "jg") return "JUNGLE";
-    if (x.includes("mid") || x.includes("middle")) return "MID";
-    if (x.includes("top")) return "TOP";
-    return "UNKNOWN";
-  }
-
-  function counterScore(enemyItems, candidateItem, playerChamp, laneRaw, phase) {
-    const sig = buildEnemySignals(enemyItems);
-    const id = candidateItem.id;
-    const kind = laneKind(laneRaw);
-    const pTags = new Set(playerChamp?.tags || []);
-    const t = new Set(candidateItem.tags || []);
-
-    let score = 0;
-
-    // hard counters
-    if (sig.hasLifesteal && GW_IDS.has(id)) score += 6;
-    if (sig.armorHeavy && ARMOR_PEN_IDS.has(id)) score += 5;
-    if (sig.hasShields && ANTI_SHIELD_IDS.has(id)) score += 4.5;
-    if (sig.hasCrit && ANTI_CRIT_IDS.has(id)) score += 4;
-
-    // support-only penalty outside support
-    const nm = candidateItem.name.toLowerCase();
-    const isSupportish = nm.includes("mikael") || nm.includes("locket") || nm.includes("redemption");
-    if (isSupportish && kind !== "SUPPORT") score -= 8;
-
-    // archetype sanity (zabrání typu: Brand -> Black Cleaver)
-    // Pokud champ je čistý "Mage" (není Fighter/Marksman), tak item s tagem "Damage" bez "SpellDamage" je podezřelý.
-    if (pTags.has("Mage") && !pTags.has("Fighter") && !pTags.has("Marksman")) {
-      const hasDamage = t.has("Damage");
-      const hasSpell = t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction");
-      if (hasDamage && !hasSpell) score -= 8; // Black Cleaver / Death's Dance / Sterak apod.
-    }
-
-    // malé preference dle tagů (ne určování "pravdy", jen tie-break)
-    if (pTags.has("Tank") && (t.has("Health") || t.has("Armor") || t.has("MagicResist"))) score += 0.6;
-    if (pTags.has("Mage") && (t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction"))) score += 0.6;
-    if (pTags.has("Marksman") && (t.has("CriticalStrike") || t.has("AttackSpeed") || t.has("Damage"))) score += 0.6;
-
-    // phase nudges
-    const ph = (phase || "").toLowerCase();
-    if (ph.includes("early")) {
-      if ((candidateItem.gold||0) <= 1400) score += 1.0;
-      if ((candidateItem.depth||0) <= 2) score += 0.6;
-    }
-    if (ph.includes("late")) {
-      if ((candidateItem.gold||0) >= 2600) score += 0.8;
-      if ((candidateItem.depth||0) >= 3) score += 0.5;
-    }
-
-    return score;
-  }
-
-  // ---------- Build scenarios (ground truth = export keys) ----------
-  const allSlugs = Object.keys(logData.champions || {});
-  const scenariosByBucket = new Map(); // early/mid/late -> scenarios
-  const scenariosByLane = new Map();
-  const scenariosByKey = new Map();
-  let totalScenarios = 0;
-
-  for (const enemySlug of allSlugs) {
-    const lanesObj = logData.champions[enemySlug] || {};
-    for (const laneRaw of Object.keys(lanesObj)) {
-      for (const rank of RANKS) {
-        const rankObj = lanesObj[laneRaw]?.[rank] || {};
-        for (const phase of Object.keys(rankObj)) {
-          const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
-          if (!enemyRow) continue;
-
-          const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-          if (!enemyItems || enemyItems.length < 1) continue;
-
-          const bucket = phaseBucket(phase);
-          const sc = { laneRaw, rank, phase, bucket, enemySlug };
-          const k = `${laneRaw}::${rank}::${phase}`;
-
-          if (!scenariosByBucket.has(bucket)) scenariosByBucket.set(bucket, []);
-          scenariosByBucket.get(bucket).push(sc);
-
-          if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
-          scenariosByLane.get(laneRaw).push(sc);
-
-          if (!scenariosByKey.has(k)) scenariosByKey.set(k, []);
-          scenariosByKey.get(k).push(sc);
-
-          totalScenarios++;
-        }
-      }
-    }
-  }
-
-  if (totalScenarios === 0) throw new Error("Žádné scénáře v exportu po filtrech.");
-
-  const laneLines = [...scenariosByLane.entries()]
-    .sort((a,b)=>b[1].length-a[1].length)
-    .map(([l,a])=>`${l}:${a.length}`);
-
-  const eCount = scenariosByBucket.get("early")?.length || 0;
-  const mCount = scenariosByBucket.get("mid")?.length || 0;
-  const lCount = scenariosByBucket.get("late")?.length || 0;
-
-  patchMeta.textContent =
-    `Patch: ${patch} • Dataset: data/log_builds.json\n` +
-    `Scénáře: ${totalScenarios}\n` +
-    `Fáze: early:${eCount} | mid:${mCount} | late:${lCount}\n` +
-    `Lane: ${laneLines.join(" | ")}`;
-
-  // forced phase cycle: early -> mid -> late -> repeat (skip empty)
-  const phaseCycle = ["early","mid","late"];
-  let phaseIdx = 0;
-  function pickPhaseForced() {
-    for (let t = 0; t < 3; t++) {
-      const p = phaseCycle[phaseIdx % phaseCycle.length];
-      phaseIdx++;
-      if ((scenariosByBucket.get(p) || []).length > 0) return p;
-    }
-    const keys = [...scenariosByBucket.keys()];
-    return keys.length ? rand(keys) : "mid";
-  }
-
-  // bag per (bucket,lane) for enemies
-  const laneBagByBucket = new Map();
-  function nextScenario() {
-    const bucket = pickPhaseForced();
-    const list = scenariosByBucket.get(bucket) || [];
-    if (!list.length) return rand([].concat(...[...scenariosByLane.values()]));
-
-    const lanes = new Map();
-    for (const sc of list) {
-      if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
-      lanes.get(sc.laneRaw).push(sc);
-    }
-
-    // weighted toward rarer lanes inside bucket
-    const laneKeys = [...lanes.keys()];
-    const weights = laneKeys.map(l => 1 / Math.max(1, lanes.get(l).length));
-    const sum = weights.reduce((a,b)=>a+b,0);
-    let r = Math.random() * sum;
-    let laneRaw = laneKeys[laneKeys.length-1];
-    for (let i=0;i<laneKeys.length;i++) { r -= weights[i]; if (r<=0) { laneRaw = laneKeys[i]; break; } }
-
-    if (!laneBagByBucket.has(bucket)) laneBagByBucket.set(bucket, new Map());
-    const m = laneBagByBucket.get(bucket);
-    if (!m.has(laneRaw) || m.get(laneRaw).length === 0) m.set(laneRaw, shuffle(lanes.get(laneRaw)));
-    return m.get(laneRaw).pop();
-  }
-
-  // ---------- Anti-repeat + Player bag per key ----------
-  const RECENT_N = 25;
-  const recentEnemies = [];
-  const recentPlayers = [];
-  const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
-
-  const playerBagByKey = new Map();
-  function getPlayerFromKeyBag(key, enemySlug, recentPlayersSet) {
-    const slugsInKey = scenariosByKey.get(key)?.map(x => x.enemySlug) || [];
-    const uniq = [...new Set(slugsInKey)].filter(s => s && s !== enemySlug);
-    if (uniq.length < 2) return null;
-
-    if (!playerBagByKey.has(key) || playerBagByKey.get(key).length === 0) {
-      playerBagByKey.set(key, shuffle(uniq));
-    }
-
-    const bag = playerBagByKey.get(key);
-    for (let i = 0; i < bag.length; i++) {
-      const cand = bag.pop();
-      if (!recentPlayersSet.has(cand)) return cand;
-    }
-    return uniq.find(s => s !== enemySlug) || null;
-  }
-
-  function lockChoices(locked) {
-    document.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
-  }
-
-  let state = { correctId: null, correctName: "", why: "", bullets: [] };
-
-  function renderAnalysis() {
-    el("analysisBox").style.display = "block";
-    el("reason").textContent = state.why;
-    const ul = el("bullets");
-    ul.innerHTML = "";
-    for (const b of state.bullets || []) {
-      const li = document.createElement("li");
-      li.textContent = b;
-      ul.appendChild(li);
-    }
-  }
-
-  async function newRound() {
-    awaitingNext = false;
-    nextBtn.style.display = "none";
-    nextBtn.disabled = true;
-    newBtn.disabled = false;
-
-    el("result").textContent = "";
-    el("result").className = "result";
-    el("choices").innerHTML = "";
-    el("analysisBox").style.display = "none";
-    el("reason").textContent = "";
-    el("bullets").innerHTML = "";
-
-    for (let tries = 0; tries < 8000; tries++) {
-      const sc = nextScenario();
-      const { laneRaw, rank, phase, enemySlug } = sc;
-
-      if (recentEnemies.includes(enemySlug)) continue;
-
-      // STRICT champ mapping: pokud slug není valid champ id, žádný random
-      const enemyChamp = champFromSlugStrict(enemySlug);
-      if (!enemyChamp) continue;
-
-      const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
-      if (!enemyRow) continue;
-
-      const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-      if (!enemyItems || enemyItems.length < 1) continue;
-
-      const key = `${laneRaw}::${rank}::${phase}`;
-      const playerSlug = getPlayerFromKeyBag(key, enemySlug, new Set(recentPlayers));
-      if (!playerSlug) continue;
-
-      // STRICT champ mapping: jinak vznikají situace typu "Brand má bruiser pool"
-      const playerChamp = champFromSlugStrict(playerSlug);
-      if (!playerChamp) continue;
-
-      if (recentPlayers.length && recentPlayers[recentPlayers.length - 1] === playerSlug) continue;
-
-      const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
-      if (!playerRow) continue;
-
-      const playerItems = getRelevantItemsFromRow(playerRow, 6);
-      if (!playerItems || playerItems.length < 1) continue;
-
-      // --- phase/build consistency gate ---
-      const expectedStage = phaseBucket(phase);
-      const enemyStage = buildStageFromItems(enemyItems);
-      const playerStage = buildStageFromItems(playerItems);
-      if (enemyStage !== expectedStage) continue;
-      if (playerStage !== expectedStage) continue;
-
-      const owned = itemIdSet(playerItems);
-
-      const poolRaw = getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase);
-      if (!poolRaw || poolRaw.length < 3) continue;
-
-      // never offer owned
-      let pool = poolRaw.filter(it => !owned.has(it.id));
-
-      // stage gate => stejné "layer/tier"
-      pool = filterPoolByStage(pool, expectedStage);
-
-      // fallback pro owned, ale pořád zachovej stage gate
-      if (pool.length < 3) {
-        const ownedLite = new Set((playerItems || []).slice(0, 3).map(x => x.id));
-        pool = poolRaw.filter(it => !ownedLite.has(it.id));
-        pool = filterPoolByStage(pool, expectedStage);
-        if (pool.length < 3) continue;
-      }
-
-      // correct = argmax(pool)
-      let best = null;
-      let bestScore = -1e9;
-      for (const it of pool) {
-        const s = counterScore(enemyItems, it, playerChamp, laneRaw, phase);
-        if (s > bestScore) { bestScore = s; best = it; }
-      }
-      if (!best) continue;
-
-      const correctId = best.id;
-      const wrongIds = pickTwoDistractorsFromPool(pool, correctId);
-      if (!wrongIds) continue;
-
-      const ids = shuffle([correctId, ...wrongIds]);
-      if (new Set(ids).size !== 3) continue;
-      if (ids.some(id => !itemById.get(id))) continue;
-      if (ids.some(id => owned.has(id))) continue;
-
-      // UI
-      setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
-      setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
-
-      renderIcons("enemyBuildIcons", enemyItems);
-      renderIcons("playerBuildIcons", playerItems);
-
-      el("enemyBuildInfo").textContent =
-        `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top row exportu)`;
-
-      el("playerBuildInfo").textContent =
-        `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
-
-      const chosenName = itemById.get(correctId)?.name || "—";
-      const enemyList = enemyItems.map(x=>x.name).join(", ");
-      const playerList = playerItems.map(x=>x.name).join(", ");
-      const sig = buildEnemySignals(enemyItems);
-      const bullets = [];
-
-      if (GW_IDS.has(correctId) && sig.hasLifesteal) bullets.push("Oponent má sustain/lifesteal → GW zmenší heal a přetlačí trades.");
-      if (ARMOR_PEN_IDS.has(correctId) && sig.armorHeavy) bullets.push("Oponent má více armor itemů → bez pen/shredu mu neublížíš.");
-      if (ANTI_SHIELD_IDS.has(correctId) && sig.hasShields) bullets.push("Oponent má shield itemy → Serpent’s Fang snižuje efektivní HP.");
-      if (ANTI_CRIT_IDS.has(correctId) && sig.hasCrit) bullets.push("Oponent má crit/AA DPS → Randuin/Frozen Heart sníží jeho DPS.");
-      if (bullets.length === 0) bullets.push("Z tvého reálně hraného poolu (export) je to nejlepší odpověď na profil enemy itemů v této fázi.");
-
-      state.correctId = correctId;
-      state.correctName = chosenName;
-      state.why =
-        `Fáze: ${phase} (gate: ${expectedStage}). Enemy itemy: ${enemyList}. Ty (top build): ${playerList}. ` +
-        `Volby jsou jen z poolu itemů, které tvůj champion v této situaci reálně hraje (top ${POOL_TOP_N_ROWS} řádků exportu). ` +
-        `Stejný tier/layer pro danou fázi. Nikdy se nenabízí item, který už máš.`;
-      state.bullets = bullets;
-
-      el("choices").innerHTML = "";
-      for (const id of ids) {
-        const it = itemById.get(id);
-        const btn = document.createElement("button");
-        btn.className = "choice";
-        btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
-        btn.onclick = () => onPick(id);
-        el("choices").appendChild(btn);
-      }
-
-      pushRecent(recentEnemies, enemySlug);
-      pushRecent(recentPlayers, playerSlug);
+    // ---------- Load export with hard diagnostics ----------
+    const dsUrl = new URL("./data/log_builds.json", location.href).toString();
+    console.log("Dataset URL:", dsUrl);
+
+    let resp;
+    try {
+      resp = await fetch(dsUrl, { cache: "no-store" });
+    } catch (e) {
+      console.error("Dataset fetch network error:", e);
+      patchMetaEl.textContent = "Chyba: dataset fetch network error";
       return;
     }
 
-    el("result").textContent = "Chyba: nelze vygenerovat validní kolo (dataset/filtry).";
-    el("result").className = "result bad";
-  }
+    console.log("Dataset fetch status:", resp.status, resp.statusText);
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      console.error("Dataset fetch body (first 200):", txt.slice(0, 200));
+      patchMetaEl.textContent = `Chyba: data/log_builds.json (${resp.status})`;
+      return;
+    }
 
-  function onPick(id) {
-    if (awaitingNext) return;
-    awaitingNext = true;
+    let logData;
+    try {
+      logData = await resp.json();
+    } catch (e) {
+      console.error("Dataset JSON parse error:", e);
+      patchMetaEl.textContent = "Chyba: dataset není valid JSON";
+      return;
+    }
 
-    lockChoices(true);
-    newBtn.disabled = true;
+    if (!logData || !logData.champions) {
+      patchMetaEl.textContent = "Chyba: dataset má špatný formát (chybí .champions)";
+      return;
+    }
 
-    const ok = id === state.correctId;
+    const RANKS = ["silver", "gold"];
 
-    if (ok) {
-      SCORE += 1;
-      STREAK += 1;
-      el("result").textContent = "SPRÁVNĚ";
-      el("result").className = "result ok";
-    } else {
-      STREAK = 0;
-      el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
+    // ---------- Patch pin ----------
+    const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json", { cache: "no-store" }).then(r => r.json());
+    const datasetPatch = (logData?.patch || logData?.meta?.patch || logData?.metadata?.patch || "").toString().trim();
+    const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
+
+    // ---------- DDragon: champs ----------
+    const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`, { cache: "no-store" }).then(r => r.json());
+    const champs = Object.values(champFull.data).map(c => ({
+      id: c.id,
+      name: c.name,
+      tags: c.tags || [],
+      icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
+    }));
+
+    const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const champByNormId = new Map();
+    for (const c of champs) champByNormId.set(norm(c.id), c);
+
+    function champFromSlugStrict(slug) {
+      return champByNormId.get(norm(slug)) || null;
+    }
+
+    // ---------- DDragon: items ----------
+    const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`, { cache: "no-store" }).then(r => r.json());
+    const rawItems = itemJson.data;
+    const items = Object.entries(rawItems).map(([id, it]) => ({
+      id: Number(id),
+      name: it.name,
+      gold: it.gold?.total ?? 0,
+      tags: it.tags ?? [],
+      icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`,
+      depth: it.depth ?? 0,
+      requiredChampion: it.requiredChampion ?? null,
+      inStore: it.inStore !== false
+    }));
+    const itemById = new Map(items.map(i => [i.id, i]));
+
+    // ---------- Item relevance ----------
+    const HARD_BANNED_ITEM_IDS = new Set([
+      2003,2031,2033,2032,
+      2055,
+      3340,3363,3364,
+      2010,2015,2019,2021,
+      2051,2052,2138,2139,2140
+    ]);
+
+    function isRelevantItem(it) {
+      if (!it) return false;
+      if (!it.inStore) return false;
+      if (it.requiredChampion) return false;
+      if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
+      if ((it.gold ?? 0) <= 0) return false;
+      const tags = new Set(it.tags || []);
+      if (tags.has("Consumable")) return false;
+      if (tags.has("Trinket")) return false;
+      const n = (it.name || "").toLowerCase();
+      if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
+      return !!it.icon;
+    }
+
+    // ---------- LoG -> Riot item mapping (STRICT) ----------
+    const normalizeName = (s) =>
+      (s || "")
+        .toLowerCase()
+        .replace(/&/g, "and")
+        .replace(/[’'`"]/g, "")
+        .replace(/[^a-z0-9]+/g, "")
+        .trim();
+
+    const itemByNormName = new Map();
+    for (const it of items) itemByNormName.set(normalizeName(it.name), it);
+
+    const NAME_ALIASES = new Map([
+      [normalizeName("Lord Dominik's Regards"), normalizeName("Lord Dominiks Regards")],
+      [normalizeName("Zhonya's Hourglass"), normalizeName("Zhonyas Hourglass")]
+    ]);
+
+    function getRiotItemByLoGName(logName) {
+      const n = normalizeName(logName);
+      if (itemByNormName.has(n)) return itemByNormName.get(n);
+      for (const [a, b] of NAME_ALIASES.entries()) {
+        if (n === a && itemByNormName.has(b)) return itemByNormName.get(b);
+        if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
+      }
+      return null;
+    }
+
+    function riotItemIdByName(name) {
+      return itemByNormName.get(normalizeName(name))?.id ?? null;
+    }
+
+    // ---------- UI helpers ----------
+    function setChamp(side, champ, extra) {
+      el(`${side}Icon`).src = champ.icon;
+      el(`${side}Icon`).alt = champ.name;
+      el(`${side}Name`).textContent = champ.name;
+      el(`${side}Info`).textContent = extra;
+    }
+
+    function renderIcons(containerId, itemList) {
+      const wrap = el(containerId);
+      wrap.innerHTML = "";
+      for (const it of (itemList || [])) {
+        const img = document.createElement("img");
+        img.className = "mini";
+        img.alt = it.name;
+        img.title = it.name;
+        img.src = it.icon + `?v=${Date.now()}`;
+        img.onerror = () => img.remove();
+        wrap.appendChild(img);
+      }
+    }
+
+    // ---------- Export access ----------
+    function getRows(slug, laneRaw, rank, phase) {
+      const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      return rows;
+    }
+
+    function getTopRow(slug, laneRaw, rank, phase) {
+      const rows = getRows(slug, laneRaw, rank, phase);
+      return rows ? rows[0] : null;
+    }
+
+    function getRelevantItemsFromRow(row, max = 6) {
+      const out = [];
+      for (const x of (row?.items || [])) {
+        const mapped = getRiotItemByLoGName(x?.name);
+        if (!mapped) continue;
+        const it = itemById.get(mapped.id);
+        if (!isRelevantItem(it)) continue;
+        out.push(it);
+        if (out.length >= max) break;
+      }
+      return out;
+    }
+
+    function parsePct(x) {
+      if (x == null) return 0;
+      if (typeof x === "number") return x;
+      const s = String(x).trim().replace("%", "");
+      const v = Number(s);
+      return Number.isFinite(v) ? v : 0;
+    }
+
+    function itemIdSet(list) {
+      const s = new Set();
+      for (const it of (list || [])) s.add(it.id);
+      return s;
+    }
+
+    // ---------- Stage gating ----------
+    function isComponent(it) { return (it.depth || 0) <= 2 && (it.gold || 0) <= 1600; }
+    function isCompleted(it) { return (it.depth || 0) >= 3 || (it.gold || 0) >= 2200; }
+    function buildGold(itemsList) { return (itemsList || []).reduce((s, it) => s + (it?.gold || 0), 0); }
+    function buildStageFromItems(itemsList) {
+      const completed = (itemsList || []).filter(isCompleted).length;
+      const gold = buildGold(itemsList);
+      if (completed >= 3 || gold >= 8500) return "late";
+      if (completed >= 1 || gold >= 3500) return "mid";
+      return "early";
+    }
+    function phaseBucket(phaseStr) {
+      const p = (phaseStr || "").toLowerCase();
+      if (p.includes("early")) return "early";
+      if (p.includes("late")) return "late";
+      return "mid";
+    }
+    function filterPoolByStage(poolItems, stage) {
+      if (stage === "early") return poolItems.filter(it => isComponent(it));
+      if (stage === "mid") return poolItems.filter(it => (it.gold || 0) >= 700 && (it.gold || 0) <= 3200);
+      return poolItems.filter(it => isCompleted(it) && (it.gold || 0) >= 2200);
+    }
+
+    // ---------- Player pool from export ----------
+    const POOL_TOP_N_ROWS = 18;
+    function getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase) {
+      const rows = getRows(playerSlug, laneRaw, rank, phase);
+      if (!rows) return null;
+
+      const lim = Math.min(POOL_TOP_N_ROWS, rows.length);
+      const weightByItemId = new Map();
+
+      for (let i = 0; i < lim; i++) {
+        const row = rows[i];
+        const rowPick = parsePct(row?.pickRate);
+        const w = rowPick > 0 ? rowPick : (1.0 / (i + 1));
+        const itemsList = getRelevantItemsFromRow(row, 6) || [];
+        for (const it of itemsList) {
+          if (!isRelevantItem(it)) continue;
+          weightByItemId.set(it.id, (weightByItemId.get(it.id) || 0) + w);
+        }
+      }
+
+      const all = [];
+      for (const [id] of weightByItemId.entries()) {
+        const it = itemById.get(id);
+        if (!it || !isRelevantItem(it)) continue;
+        all.push(it);
+      }
+
+      all.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
+      return all;
+    }
+
+    // ---------- Tier matching ----------
+    function tierBucket(it) {
+      const g = it.gold || 0;
+      const d = it.depth || 0;
+      let band = 0;
+      if (g <= 500) band = 0;
+      else if (g <= 900) band = 1;
+      else if (g <= 1400) band = 2;
+      else if (g <= 2000) band = 3;
+      else if (g <= 2600) band = 4;
+      else if (g <= 3200) band = 5;
+      else band = 6;
+
+      let depthBand = 0;
+      if (d <= 1) depthBand = 0;
+      else if (d === 2) depthBand = 1;
+      else if (d === 3) depthBand = 2;
+      else depthBand = 3;
+
+      return `${band}::${depthBand}`;
+    }
+
+    function pickTwoDistractorsFromPool(poolItems, correctId) {
+      const correct = itemById.get(correctId);
+      if (!correct) return null;
+
+      const ctier = tierBucket(correct);
+      const cgold = correct.gold || 0;
+      const cdepth = correct.depth || 0;
+
+      let candidates = poolItems.filter(it => it.id !== correctId && tierBucket(it) === ctier);
+      if (candidates.length < 4) {
+        candidates = poolItems.filter(it =>
+          it.id !== correctId &&
+          Math.abs((it.gold||0) - cgold) <= 600 &&
+          Math.abs((it.depth||0) - cdepth) <= 1
+        );
+      }
+      if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
+
+      candidates = shuffle(candidates);
+      const out = [];
+      for (const it of candidates) {
+        if (out.length >= 2) break;
+        out.push(it.id);
+      }
+      return out.length === 2 ? out : null;
+    }
+
+    // ---------- Counter scoring ----------
+    function buildEnemySignals(enemyItems) {
+      const names = enemyItems.map(x => x.name.toLowerCase()).join(" | ");
+      const armorCount = enemyItems.filter(it => (it.tags||[]).includes("Armor")).length;
+      const hasShields = names.includes("sterak") || names.includes("seraph") || names.includes("immortal shieldbow");
+      const hasLifesteal = names.includes("bloodthirst") || names.includes("ravenous") || names.includes("blade of the ruined king") || names.includes("riftmaker") || names.includes("vamp");
+      const hasCrit = names.includes("infinity edge") || names.includes("phantom dancer") || names.includes("rapid firecannon") || names.includes("statikk") || names.includes("navori") || names.includes("the collector");
+      return { armorHeavy: armorCount >= 2, hasLifesteal, hasShields, hasCrit };
+    }
+
+    const GW_IDS = new Set([
+      riotItemIdByName("Morellonomicon"),
+      riotItemIdByName("Mortal Reminder"),
+      riotItemIdByName("Thornmail"),
+      riotItemIdByName("Chempunk Chainsword")
+    ].filter(Boolean));
+
+    const ARMOR_PEN_IDS = new Set([
+      riotItemIdByName("Lord Dominik's Regards"),
+      riotItemIdByName("Serylda's Grudge"),
+      riotItemIdByName("Black Cleaver"),
+      riotItemIdByName("Terminus")
+    ].filter(Boolean));
+
+    const ANTI_SHIELD_IDS = new Set([riotItemIdByName("Serpent's Fang")].filter(Boolean));
+    const ANTI_CRIT_IDS = new Set([riotItemIdByName("Randuin's Omen"), riotItemIdByName("Frozen Heart")].filter(Boolean));
+
+    function laneKind(laneRaw) {
+      const x = (laneRaw || "").toLowerCase().trim();
+      if (x.includes("support") || x === "supp") return "SUPPORT";
+      if (x === "adc" || x.includes("bot") || x.includes("bottom")) return "ADC";
+      if (x.includes("jungle") || x === "jg") return "JUNGLE";
+      if (x.includes("mid") || x.includes("middle")) return "MID";
+      if (x.includes("top")) return "TOP";
+      return "UNKNOWN";
+    }
+
+    function counterScore(enemyItems, candidateItem, playerChamp, laneRaw, phase) {
+      const sig = buildEnemySignals(enemyItems);
+      const id = candidateItem.id;
+      const kind = laneKind(laneRaw);
+      const pTags = new Set(playerChamp?.tags || []);
+      const t = new Set(candidateItem.tags || []);
+
+      let score = 0;
+
+      if (sig.hasLifesteal && GW_IDS.has(id)) score += 6;
+      if (sig.armorHeavy && ARMOR_PEN_IDS.has(id)) score += 5;
+      if (sig.hasShields && ANTI_SHIELD_IDS.has(id)) score += 4.5;
+      if (sig.hasCrit && ANTI_CRIT_IDS.has(id)) score += 4;
+
+      const nm = candidateItem.name.toLowerCase();
+      const isSupportish = nm.includes("mikael") || nm.includes("locket") || nm.includes("redemption");
+      if (isSupportish && kind !== "SUPPORT") score -= 8;
+
+      // Mage sanity: prevent bruiser/AD-only items as "correct" for pure mages
+      if (pTags.has("Mage") && !pTags.has("Fighter") && !pTags.has("Marksman")) {
+        const hasDamage = t.has("Damage");
+        const hasSpell = t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction");
+        if (hasDamage && !hasSpell) score -= 8;
+      }
+
+      if (pTags.has("Tank") && (t.has("Health") || t.has("Armor") || t.has("MagicResist"))) score += 0.6;
+      if (pTags.has("Mage") && (t.has("SpellDamage") || t.has("Mana") || t.has("CooldownReduction"))) score += 0.6;
+      if (pTags.has("Marksman") && (t.has("CriticalStrike") || t.has("AttackSpeed") || t.has("Damage"))) score += 0.6;
+
+      const ph = (phase || "").toLowerCase();
+      if (ph.includes("early")) {
+        if ((candidateItem.gold||0) <= 1400) score += 1.0;
+        if ((candidateItem.depth||0) <= 2) score += 0.6;
+      }
+      if (ph.includes("late")) {
+        if ((candidateItem.gold||0) >= 2600) score += 0.8;
+        if ((candidateItem.depth||0) >= 3) score += 0.5;
+      }
+
+      return score;
+    }
+
+    // ---------- Build scenarios ----------
+    const allSlugs = Object.keys(logData.champions || {});
+    const scenariosByBucket = new Map(); // early/mid/late -> scenarios
+    const scenariosByLane = new Map();
+    const scenariosByKey = new Map();
+    let totalScenarios = 0;
+
+    for (const enemySlug of allSlugs) {
+      const lanesObj = logData.champions[enemySlug] || {};
+      for (const laneRaw of Object.keys(lanesObj)) {
+        for (const rank of RANKS) {
+          const rankObj = lanesObj[laneRaw]?.[rank] || {};
+          for (const phase of Object.keys(rankObj)) {
+            const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
+            if (!enemyRow) continue;
+
+            const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
+            if (!enemyItems || enemyItems.length < 1) continue;
+
+            const bucket = phaseBucket(phase);
+            const sc = { laneRaw, rank, phase, bucket, enemySlug };
+            const k = `${laneRaw}::${rank}::${phase}`;
+
+            if (!scenariosByBucket.has(bucket)) scenariosByBucket.set(bucket, []);
+            scenariosByBucket.get(bucket).push(sc);
+
+            if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
+            scenariosByLane.get(laneRaw).push(sc);
+
+            if (!scenariosByKey.has(k)) scenariosByKey.set(k, []);
+            scenariosByKey.get(k).push(sc);
+
+            totalScenarios++;
+          }
+        }
+      }
+    }
+
+    if (totalScenarios === 0) {
+      patchMetaEl.textContent = "Chyba: žádné scénáře v exportu po filtrech";
+      return;
+    }
+
+    const laneLines = [...scenariosByLane.entries()]
+      .sort((a,b)=>b[1].length-a[1].length)
+      .map(([l,a])=>`${l}:${a.length}`);
+
+    const eCount = scenariosByBucket.get("early")?.length || 0;
+    const mCount = scenariosByBucket.get("mid")?.length || 0;
+    const lCount = scenariosByBucket.get("late")?.length || 0;
+
+    patchMetaEl.textContent =
+      `Patch: ${patch} • Dataset: data/log_builds.json\n` +
+      `Scénáře: ${totalScenarios}\n` +
+      `Fáze: early:${eCount} | mid:${mCount} | late:${lCount}\n` +
+      `Lane: ${laneLines.join(" | ")}`;
+
+    // forced phase cycle: early -> mid -> late -> repeat
+    const phaseCycle = ["early","mid","late"];
+    let phaseIdx = 0;
+    function pickPhaseForced() {
+      for (let t = 0; t < 3; t++) {
+        const p = phaseCycle[phaseIdx % phaseCycle.length];
+        phaseIdx++;
+        if ((scenariosByBucket.get(p) || []).length > 0) return p;
+      }
+      const keys = [...scenariosByBucket.keys()];
+      return keys.length ? rand(keys) : "mid";
+    }
+
+    // bag per (bucket,lane) for enemies
+    const laneBagByBucket = new Map();
+    function nextScenario() {
+      const bucket = pickPhaseForced();
+      const list = scenariosByBucket.get(bucket) || [];
+      if (!list.length) return rand([].concat(...[...scenariosByLane.values()]));
+
+      const lanes = new Map();
+      for (const sc of list) {
+        if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
+        lanes.get(sc.laneRaw).push(sc);
+      }
+
+      const laneKeys = [...lanes.keys()];
+      const weights = laneKeys.map(l => 1 / Math.max(1, lanes.get(l).length));
+      const sum = weights.reduce((a,b)=>a+b,0);
+      let r = Math.random() * sum;
+      let laneRaw = laneKeys[laneKeys.length-1];
+      for (let i=0;i<laneKeys.length;i++) { r -= weights[i]; if (r<=0) { laneRaw = laneKeys[i]; break; } }
+
+      if (!laneBagByBucket.has(bucket)) laneBagByBucket.set(bucket, new Map());
+      const m = laneBagByBucket.get(bucket);
+      if (!m.has(laneRaw) || m.get(laneRaw).length === 0) m.set(laneRaw, shuffle(lanes.get(laneRaw)));
+      return m.get(laneRaw).pop();
+    }
+
+    // anti-repeat + player bag per key
+    const RECENT_N = 25;
+    const recentEnemies = [];
+    const recentPlayers = [];
+    const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
+
+    const playerBagByKey = new Map();
+    function getPlayerFromKeyBag(key, enemySlug, recentPlayersSet) {
+      const slugsInKey = scenariosByKey.get(key)?.map(x => x.enemySlug) || [];
+      const uniq = [...new Set(slugsInKey)].filter(s => s && s !== enemySlug);
+      if (uniq.length < 2) return null;
+
+      if (!playerBagByKey.has(key) || playerBagByKey.get(key).length === 0) {
+        playerBagByKey.set(key, shuffle(uniq));
+      }
+
+      const bag = playerBagByKey.get(key);
+      for (let i = 0; i < bag.length; i++) {
+        const cand = bag.pop();
+        if (!recentPlayersSet.has(cand)) return cand;
+      }
+      return uniq.find(s => s !== enemySlug) || null;
+    }
+
+    function lockChoices(locked) {
+      document.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
+    }
+
+    let state = { correctId: null, correctName: "", why: "", bullets: [] };
+
+    function renderAnalysis() {
+      el("analysisBox").style.display = "block";
+      el("reason").textContent = state.why;
+      const ul = el("bullets");
+      ul.innerHTML = "";
+      for (const b of state.bullets || []) {
+        const li = document.createElement("li");
+        li.textContent = b;
+        ul.appendChild(li);
+      }
+    }
+
+    async function newRound() {
+      awaitingNext = false;
+      nextBtn.style.display = "none";
+      nextBtn.disabled = true;
+      newBtn.disabled = false;
+
+      el("result").textContent = "";
+      el("result").className = "result";
+      el("choices").innerHTML = "";
+      el("analysisBox").style.display = "none";
+      el("reason").textContent = "";
+      el("bullets").innerHTML = "";
+
+      for (let tries = 0; tries < 9000; tries++) {
+        const sc = nextScenario();
+        const { laneRaw, rank, phase, enemySlug } = sc;
+
+        if (recentEnemies.includes(enemySlug)) continue;
+
+        const enemyChamp = champFromSlugStrict(enemySlug);
+        if (!enemyChamp) continue;
+
+        const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
+        if (!enemyRow) continue;
+
+        const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
+        if (!enemyItems || enemyItems.length < 1) continue;
+
+        const key = `${laneRaw}::${rank}::${phase}`;
+        const playerSlug = getPlayerFromKeyBag(key, enemySlug, new Set(recentPlayers));
+        if (!playerSlug) continue;
+
+        const playerChamp = champFromSlugStrict(playerSlug);
+        if (!playerChamp) continue;
+
+        if (recentPlayers.length && recentPlayers[recentPlayers.length - 1] === playerSlug) continue;
+
+        const playerRow = getTopRow(playerSlug, laneRaw, rank, phase);
+        if (!playerRow) continue;
+
+        const playerItems = getRelevantItemsFromRow(playerRow, 6);
+        if (!playerItems || playerItems.length < 1) continue;
+
+        // phase/build consistency gate
+        const expectedStage = phaseBucket(phase);
+        const enemyStage = buildStageFromItems(enemyItems);
+        const playerStage = buildStageFromItems(playerItems);
+        if (enemyStage !== expectedStage) continue;
+        if (playerStage !== expectedStage) continue;
+
+        const owned = itemIdSet(playerItems);
+
+        const poolRaw = getPlayerPoolFromExport(playerSlug, laneRaw, rank, phase);
+        if (!poolRaw || poolRaw.length < 3) continue;
+
+        let pool = poolRaw.filter(it => !owned.has(it.id));
+        pool = filterPoolByStage(pool, expectedStage);
+
+        if (pool.length < 3) {
+          const ownedLite = new Set((playerItems || []).slice(0, 3).map(x => x.id));
+          pool = poolRaw.filter(it => !ownedLite.has(it.id));
+          pool = filterPoolByStage(pool, expectedStage);
+          if (pool.length < 3) continue;
+        }
+
+        let best = null;
+        let bestScore = -1e9;
+        for (const it of pool) {
+          const s = counterScore(enemyItems, it, playerChamp, laneRaw, phase);
+          if (s > bestScore) { bestScore = s; best = it; }
+        }
+        if (!best) continue;
+
+        const correctId = best.id;
+        const wrongIds = pickTwoDistractorsFromPool(pool, correctId);
+        if (!wrongIds) continue;
+
+        const ids = shuffle([correctId, ...wrongIds]);
+        if (new Set(ids).size !== 3) continue;
+        if (ids.some(id => !itemById.get(id))) continue;
+        if (ids.some(id => owned.has(id))) continue;
+
+        setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
+        setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase}`);
+
+        renderIcons("enemyBuildIcons", enemyItems);
+        renderIcons("playerBuildIcons", playerItems);
+
+        el("enemyBuildInfo").textContent =
+          `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top row exportu)`;
+
+        el("playerBuildInfo").textContent =
+          `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top row exportu)`;
+
+        const chosenName = itemById.get(correctId)?.name || "—";
+        const enemyList = enemyItems.map(x=>x.name).join(", ");
+        const playerList = playerItems.map(x=>x.name).join(", ");
+        const sig = buildEnemySignals(enemyItems);
+        const bullets = [];
+
+        if (GW_IDS.has(correctId) && sig.hasLifesteal) bullets.push("Oponent má sustain/lifesteal → GW zmenší heal a přetlačí trades.");
+        if (ARMOR_PEN_IDS.has(correctId) && sig.armorHeavy) bullets.push("Oponent má více armor itemů → bez pen/shredu mu neublížíš.");
+        if (ANTI_SHIELD_IDS.has(correctId) && sig.hasShields) bullets.push("Oponent má shield itemy → Serpent’s Fang snižuje efektivní HP.");
+        if (ANTI_CRIT_IDS.has(correctId) && sig.hasCrit) bullets.push("Oponent má crit/AA DPS → Randuin/Frozen Heart sníží jeho DPS.");
+        if (bullets.length === 0) bullets.push("Z tvého reálně hraného poolu (export) je to nejlepší odpověď na profil enemy itemů v této fázi.");
+
+        state.correctId = correctId;
+        state.correctName = chosenName;
+        state.why =
+          `Fáze: ${phase} (gate: ${expectedStage}). Enemy itemy: ${enemyList}. Ty (top build): ${playerList}. ` +
+          `Volby jsou jen z poolu itemů, které tvůj champion v této situaci reálně hraje (top ${POOL_TOP_N_ROWS} řádků exportu). ` +
+          `Stejný tier/layer pro danou fázi. Nikdy se nenabízí item, který už máš.`;
+        state.bullets = bullets;
+
+        el("choices").innerHTML = "";
+        for (const id of ids) {
+          const it = itemById.get(id);
+          const btn = document.createElement("button");
+          btn.className = "choice";
+          btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
+          btn.onclick = () => onPick(id);
+          el("choices").appendChild(btn);
+        }
+
+        pushRecent(recentEnemies, enemySlug);
+        pushRecent(recentPlayers, playerSlug);
+        return;
+      }
+
+      el("result").textContent = "Chyba: nelze vygenerovat validní kolo (dataset/filtry).";
       el("result").className = "result bad";
     }
 
-    scoreEl.textContent = String(SCORE);
-    streakEl.textContent = String(STREAK);
+    function onPick(id) {
+      if (awaitingNext) return;
+      awaitingNext = true;
 
-    renderAnalysis();
+      lockChoices(true);
+      newBtn.disabled = true;
 
-    nextBtn.style.display = "inline-block";
-    nextBtn.disabled = false;
+      const ok = id === state.correctId;
+
+      if (ok) {
+        SCORE += 1;
+        STREAK += 1;
+        el("result").textContent = "SPRÁVNĚ";
+        el("result").className = "result ok";
+      } else {
+        STREAK = 0;
+        el("result").textContent = `ŠPATNĚ • Správně: ${state.correctName}`;
+        el("result").className = "result bad";
+      }
+
+      scoreEl.textContent = String(SCORE);
+      streakEl.textContent = String(STREAK);
+
+      renderAnalysis();
+
+      nextBtn.style.display = "inline-block";
+      nextBtn.disabled = false;
+    }
+
+    newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
+    nextBtn.addEventListener("click", () => newRound());
+
+    await newRound();
+  } catch (e) {
+    console.error("FATAL:", e);
+    if (patchMetaEl) patchMetaEl.textContent = "FATAL: " + (e?.message || String(e));
   }
-
-  newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
-  nextBtn.addEventListener("click", () => newRound());
-
-  await newRound();
 })();
 </script>
 </body>
