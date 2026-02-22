@@ -143,6 +143,7 @@
   let STREAK = 0;
   let awaitingNext = false;
 
+  // Patch
   const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
   const patch = versions[0];
   patchMeta.textContent = `Patch: ${patch} • Dataset: data/log_builds.json • Completed-only`;
@@ -156,7 +157,7 @@
     icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
   }));
 
-  // Items (need extra fields)
+  // Items (+ fields for completed filtering)
   const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
   const rawItems = itemJson.data;
 
@@ -178,9 +179,8 @@
   // LoG dataset
   const logData = await fetch("./data/log_builds.json").then(r => r.json());
 
-  const LANES = ["top","jungle","middle","adc","support"];
   const RANKS = ["silver","gold"];
-  const PHASES = ["mid","late"]; // start vypnuto
+  const PHASES = ["mid","late"]; // start vypnuto (start itemy)
 
   const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const shuffle = (arr) => {
@@ -199,7 +199,7 @@
     2010,2015,2019,2021  // biscuits/refillables (varies)
   ]);
 
-  // STRICT completed filter: depth>=3 AND no further upgrades (into empty)
+  // STRICT completed: depth>=3 AND no upgrades (into empty)
   function isCompletedItem(it) {
     if (!it) return false;
     if (!it.inStore) return false;
@@ -212,6 +212,8 @@
   }
 
   const COMPLETED_POOL = items.filter(isCompletedItem);
+  if (COMPLETED_POOL.length === 0) throw new Error("Completed pool prázdný – filtr je moc přísný.");
+
   function fallbackAnyCompletedItem() {
     return rand(COMPLETED_POOL).id;
   }
@@ -276,6 +278,25 @@
     el(`${side}Info`).textContent = extra;
   }
 
+  // Icons renderer (no empty boxes; remove broken; cache-bust)
+  function renderIcons(containerId, itemList) {
+    const wrap = el(containerId);
+    wrap.innerHTML = "";
+
+    for (const it of itemList) {
+      if (!it || !it.icon) continue;
+
+      const img = document.createElement("img");
+      img.className = "mini";
+      img.alt = it.name;
+      img.title = it.name;
+      img.onerror = () => img.remove();
+      img.src = it.icon + `?v=${Date.now()}`;
+
+      wrap.appendChild(img);
+    }
+  }
+
   // Enemy row -> completed Riot items
   function getCompletedEnemyItemsFromRow(row) {
     const out = [];
@@ -290,27 +311,8 @@
     return out;
   }
 
-  function rowHasCompletedItem(row) {
-    for (const x of (row?.items || [])) {
-      const mapped = getRiotItemByLoGName(x?.name);
-      if (!mapped) continue;
-      const it = itemById.get(mapped.id);
-      if (isCompletedItem(it)) return true;
-    }
-    return false;
-  }
-
-  function renderIcons(containerId, itemList) {
-    const wrap = el(containerId);
-    wrap.innerHTML = "";
-    for (const it of itemList) {
-      const img = document.createElement("img");
-      img.className = "mini";
-      img.alt = it.name;
-      img.title = it.name;
-      img.src = it.icon;
-      wrap.appendChild(img);
-    }
+  function rowHasAtLeastNCompleted(row, n) {
+    return getCompletedEnemyItemsFromRow(row).length >= n;
   }
 
   function renderEnemyBuildRowIcons(row) {
@@ -319,7 +321,7 @@
     return completed.length;
   }
 
-  // Build VALID_POOL only for rows that contain at least one completed item
+  // VALID_POOL only for rows with >=3 completed items (stops empty build rows)
   const VALID_POOL = []; // {slug,lane,rank,phase}
   for (const [slug, lanesObj] of Object.entries(logData.champions || {})) {
     for (const [lane, ranksObj] of Object.entries(lanesObj || {})) {
@@ -329,13 +331,13 @@
         for (const phase of PHASES) {
           const rows = node?.[phase];
           if (!Array.isArray(rows) || rows.length === 0) continue;
-          if (rowHasCompletedItem(rows[0])) VALID_POOL.push({ slug, lane, rank, phase });
+          if (rowHasAtLeastNCompleted(rows[0], 3)) VALID_POOL.push({ slug, lane, rank, phase });
         }
       }
     }
   }
   if (VALID_POOL.length === 0) {
-    throw new Error("VALID_POOL je prázdný po filtru hotových itemů. Chybí mapování názvů itemů.");
+    throw new Error("VALID_POOL je prázdný po filtru hotových itemů (>=3). Chybí mapování itemů z LoG.");
   }
 
   function pickEnemyFromLog() {
@@ -347,9 +349,8 @@
     return { slug, lane, rank, phase, bestRow: best };
   }
 
-  // --- build simulace hráče (pro vysvětlení) ---
+  // Simulate player build for explanation
   function simulatePlayerBuild(playerChamp, phase) {
-    // jednoduché: vyber 3-4 completed itemy podle archetypu
     const arch = playerArchetype(playerChamp);
 
     const wantTag = (tag) => COMPLETED_POOL.filter(it => (it.tags||[]).includes(tag));
@@ -370,42 +371,24 @@
     let base = [];
 
     if (arch === "AD") {
-      base = pickUnique(
-        wantTag("Damage").concat(wantTag("CriticalStrike"), wantTag("AttackSpeed")),
-        phase === "late" ? 4 : 3,
-        forbid
-      );
+      base = pickUnique(wantTag("Damage").concat(wantTag("CriticalStrike"), wantTag("AttackSpeed")), phase === "late" ? 4 : 3, forbid);
     } else if (arch === "AP") {
-      base = pickUnique(
-        wantTag("SpellDamage").concat(wantTag("ManaRegen"), wantTag("CooldownReduction")),
-        phase === "late" ? 4 : 3,
-        forbid
-      );
+      base = pickUnique(wantTag("SpellDamage").concat(wantTag("CooldownReduction"), wantTag("ManaRegen")), phase === "late" ? 4 : 3, forbid);
     } else if (arch === "TANK") {
-      base = pickUnique(
-        wantTag("Health").concat(wantTag("Armor"), wantTag("SpellBlock")),
-        phase === "late" ? 4 : 3,
-        forbid
-      );
+      base = pickUnique(wantTag("Health").concat(wantTag("Armor"), wantTag("SpellBlock")), phase === "late" ? 4 : 3, forbid);
     } else {
-      base = pickUnique(
-        wantTag("ManaRegen").concat(wantTag("Health"), wantTag("CooldownReduction")),
-        phase === "late" ? 4 : 3,
-        forbid
-      );
+      base = pickUnique(wantTag("ManaRegen").concat(wantTag("Health"), wantTag("CooldownReduction")), phase === "late" ? 4 : 3, forbid);
     }
 
-    // fallback když něco nevyšlo
     while (base.length < (phase === "late" ? 4 : 3)) {
       const it = rand(COMPLETED_POOL);
       if (!forbid.has(it.id)) { forbid.add(it.id); base.push(it); }
     }
-
     return base;
   }
 
-  // --- counter logic (returns structured analysis) ---
-  function counterForRow(enemyChampId, enemyLane, phase, row, playerChamp, playerBuild) {
+  // Counter logic with narrative explanation
+  function counterForRow(enemyChampId, lane, phase, row, playerChamp, playerBuild) {
     const enemyCompleted = getCompletedEnemyItemsFromRow(row);
     const enemyText = (row?.items || []).map(x => (x?.name || "").toLowerCase()).join(" | ");
     const arch = playerArchetype(playerChamp);
@@ -420,7 +403,6 @@
       return fallbackId;
     };
 
-    const threats = [];
     const bullets = [];
 
     const looksShield = ["lulu","janna","karma","shen","lux","seraphine","sion"].some(s => enemyChampId.toLowerCase().includes(s));
@@ -437,82 +419,69 @@
     if (looksShield) {
       kind = "antishield";
       itemId = pick(["Serpent's Fang"], null);
-      threats.push("shields");
-      bullets.push("Oponent má hodně shieldů → bez antishieldu se damage často „ztratí“ do štítů.");
-      bullets.push("V teamfightu to znamená, že tvůj burst/DPS neprojde na carry nebo na frontu.");
+      bullets.push("Oponent má hodně shieldů → bez antishieldu se damage často ztratí do štítů.");
+      bullets.push("V 5v5 to znamená, že nedokážeš rychle zabít carry ani prorazit frontu.");
     }
 
     if (!itemId && looksHeal) {
       kind = "antiheal";
-      threats.push("healing");
       if (arch === "AP") itemId = pick(["Morellonomicon"], null);
       if (!itemId && (arch === "TANK" || arch === "SUPPORT")) itemId = pick(["Thornmail"], null);
       if (!itemId) itemId = pick(["Mortal Reminder","Chempunk Chainsword"], null);
-      bullets.push("Oponent má heal/sustain → bez Grievous Wounds se ti fight protáhne a on se vyhealí.");
-      bullets.push("V 5v5 to často rozhoduje objektivy: drake/baron se nedá „přetlačit“ proti sustainu.");
+      bullets.push("Oponent má heal/sustain → bez Grievous Wounds se fight protáhne a on se vyhealí.");
+      bullets.push("To kazí objektivy: drake/baron se přes sustain často nedá přetlačit.");
     }
 
     if (!itemId && looksCrit) {
       kind = "anticrit";
-      threats.push("crit/AA DPS");
       itemId = pick(["Randuin's Omen","Frozen Heart"], null);
-      bullets.push("Oponent má crit/autoattack DPS → potřebuješ snížit jejich DPS a přežít první burst.");
-      bullets.push("To zvyšuje šanci, že dohraješ fight a tvoje role bude mít value i proti fed carry.");
+      bullets.push("Oponent má crit/AA DPS → chceš snížit jejich DPS a přežít první burst.");
+      bullets.push("Přežití první vlny damage často rozhodne celý teamfight.");
     }
 
     if (!itemId && armorStack) {
       kind = "armorpen";
-      threats.push("armor/HP stack");
       itemId = pick(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"], null);
-      bullets.push("Oponent stackuje armor/HP → bez penetrace mu prostě neubereš dost, i když hraješ dobře.");
-      bullets.push("V late game 5v5 je bez pen často nemožné zabít frontu, takže se nedostaneš na backline.");
+      bullets.push("Oponent stackuje armor/HP → bez penetrace mu nebudeš ubírat dost.");
+      bullets.push("V late 5v5 se bez pen často neprosekáš přes frontu a jsi bez dopadu.");
     }
 
     if (!itemId && apStack) {
       kind = "mr";
-      threats.push("AP damage");
       itemId = pick(["Kaenic Rookern","Force of Nature","Maw of Malmortius","Wit's End"], null);
-      bullets.push("Oponent má hodně AP damage → MR item ti dá čas přežít combo a pokračovat ve fightu.");
-      bullets.push("Bez MR často umřeš dřív, než vůbec stihneš udělat svůj job (DPS/peel/engage).");
+      bullets.push("Oponent má hodně AP damage → MR ti dá čas přežít combo a hrát fight dál.");
+      bullets.push("Bez MR často umřeš dřív, než stihneš udělat svou roli.");
     }
 
     if (!itemId) {
       kind = "fallback";
       itemId = pick(["Guardian Angel","Banshee's Veil","Edge of Night","Mikael's Blessing"], null) || fallbackAnyCompletedItem();
-      bullets.push("Není jasný jeden hard-counter z buildu → ber bezpečný defensivní/outplay item.");
-      bullets.push("Cíl: přežít klíčový moment fightu a mít další pokus (GA/spell shield/cleanse).");
+      bullets.push("Nevychází jeden tvrdý counter → ber bezpečný defensivní/outplay item.");
+      bullets.push("Cíl je přežít klíčový moment fightu a mít další pokus.");
     }
 
     if (!itemId) itemId = fallbackAnyCompletedItem();
 
-    // --- sestav “narativ” vysvětlení ---
-    const laneText = enemyLane;
     const phaseText = phase === "late" ? "late game" : "mid game";
     const playerItems = playerBuild.map(x => x.name).join(", ");
     const enemyItems = enemyCompleted.map(x => x.name).join(", ");
 
     let why = "";
     if (kind === "armorpen") {
-      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má build s armor/HP a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je penetrační item, protože bez armor pen mu nebudeš ubírat. V 5v5 se pak neprosekáš přes frontu, nedostaneš se na backline a jsi bez dopadu.`;
+      why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Potřebuješ víc penetrace, protože bez ní přes armor/HP frontu nedáš damage. V 5v5 pak neprosekáš fight a jsi k ničemu.`;
     } else if (kind === "antiheal") {
-      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má sustain/heal a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je antiheal, protože jinak se v delším fightu vyhealí a objektivy se nedají uhrát přes sustain.`;
+      why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Antiheal je nutný, protože jinak se v delším fightu vyhealí a objektivy přes sustain neuhráš.`;
     } else if (kind === "antishield") {
-      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má shields a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je antishield, protože bez něj ti damage mizí do štítů a nedokážeš vymazat carry ani prorazit frontu v teamfightu.`;
+      why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Antishield je správně, protože bez něj ti damage mizí do štítů a v teamfightu nedokončíš kill.`;
     } else if (kind === "anticrit") {
-      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má crit/AA DPS a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je anti-crit/anti-AA item, protože sníží jeho DPS a ty přežiješ první vlnu damage. V 5v5 pak můžeš dokončit fight.`;
+      why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Anti-crit/anti-AA sníží jeho DPS a dá ti čas přežít a dohrát fight.`;
     } else if (kind === "mr") {
-      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má silné AP damage a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je MR item, protože bez něj umřeš na combo dřív, než uděláš svůj job.`;
+      why = `Jsi na ${lane}, je ${phaseText}. Oponent má hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. MR item je správně, protože bez něj umřeš na AP combo dřív, než uděláš svůj job.`;
     } else {
-      why = `Jsi na ${laneText}, je ${phaseText}. Enemy build: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Z těchto dat nevychází jeden tvrdý counter, takže správná volba je bezpečný defensivní/outplay item, aby ses udržel naživu v klíčové části fightu.`;
+      why = `Jsi na ${lane}, je ${phaseText}. Enemy hotové itemy: ${enemyItems}. Ty máš (simulace): ${playerItems}. Z těchto dat nevychází jeden hard-counter, takže správně je defensivní/outplay item pro přežití klíčové situace.`;
     }
 
-    return {
-      counterItemId: itemId,
-      kind,
-      threats,
-      why,
-      bullets
-    };
+    return { counterItemId: itemId, kind, why, bullets };
   }
 
   // Wrong choices: completed only
@@ -543,13 +512,48 @@
     btns.forEach(b => b.disabled = locked);
   }
 
-  let state = {
-    correctId: null,
-    correctName: "",
-    why: "",
-    bullets: [],
-    roundMeta: null
-  };
+  // VALID_POOL only for rows with >=3 completed items
+  const VALID_POOL = []; // {slug,lane,rank,phase}
+  for (const [slug, lanesObj] of Object.entries(logData.champions || {})) {
+    for (const [lane, ranksObj] of Object.entries(lanesObj || {})) {
+      for (const rank of RANKS) {
+        const node = ranksObj?.[rank];
+        if (!node) continue;
+        for (const phase of PHASES) {
+          const rows = node?.[phase];
+          if (!Array.isArray(rows) || rows.length === 0) continue;
+          if (rowHasAtLeastNCompleted(rows[0], 3)) VALID_POOL.push({ slug, lane, rank, phase });
+        }
+      }
+    }
+  }
+  if (VALID_POOL.length === 0) {
+    throw new Error("VALID_POOL je prázdný po filtru hotových itemů (>=3).");
+  }
+
+  function pickEnemyFromLog() {
+    const pick = rand(VALID_POOL);
+    const { slug, lane, rank, phase } = pick;
+    const node = logData.champions?.[slug]?.[lane]?.[rank];
+    const rows = node?.[phase] || [];
+    const best = rows[0] || null;
+    return { slug, lane, rank, phase, bestRow: best };
+  }
+
+  let state = { correctId: null, correctName: "", why: "", bullets: [] };
+
+  function renderAnalysis() {
+    el("analysisBox").style.display = "block";
+    el("reason").textContent = state.why;
+
+    const ul = el("bullets");
+    ul.innerHTML = "";
+    for (const b of state.bullets || []) {
+      const li = document.createElement("li");
+      li.textContent = b;
+      ul.appendChild(li);
+    }
+  }
 
   async function newRound() {
     awaitingNext = false;
@@ -560,7 +564,6 @@
     el("result").textContent = "";
     el("result").className = "result";
     el("choices").innerHTML = "";
-
     el("analysisBox").style.display = "none";
     el("reason").textContent = "";
     el("bullets").innerHTML = "";
@@ -576,16 +579,15 @@
     if (!row) return newRound();
 
     const enemyShown = renderEnemyBuildRowIcons(row);
-    if (enemyShown === 0) return newRound();
+    if (enemyShown < 3) return newRound();
 
     const pickRate = row.pickRate ?? null;
     const winRate = row.winRate ?? null;
     el("enemyBuildInfo").textContent = `Pick: ${pickRate ?? "—"}% • Win: ${winRate ?? "—"}%`;
 
-    // simulate player build for explanation
     const playerBuild = simulatePlayerBuild(playerChamp, enemyPick.phase);
     renderIcons("playerBuildIcons", playerBuild);
-    el("playerBuildInfo").textContent = `Simulace pro vysvětlení (${enemyPick.phase}): ${playerBuild.map(x=>x.name).join(", ")}`;
+    el("playerBuildInfo").textContent = `Simulace (${enemyPick.phase}): ${playerBuild.map(x=>x.name).join(", ")}`;
 
     const analysis = counterForRow(enemyChamp.id, enemyPick.lane, enemyPick.phase, row, playerChamp, playerBuild);
     const correctId = analysis.counterItemId;
@@ -597,28 +599,14 @@
     state.correctName = itemById.get(correctId)?.name ?? String(correctId);
     state.why = analysis.why;
     state.bullets = analysis.bullets;
-    state.roundMeta = { enemyPick, enemyChamp, playerChamp, playerBuild };
 
     for (const id of ids) {
       const it = itemById.get(id);
       const btn = document.createElement("button");
       btn.className = "choice";
-      btn.innerHTML = `<img src="${it.icon}" alt="${it.name}"><div class="nm">${it.name}</div>`;
+      btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
       btn.onclick = () => onPick(id);
       el("choices").appendChild(btn);
-    }
-  }
-
-  function renderAnalysis() {
-    el("analysisBox").style.display = "block";
-    el("reason").textContent = state.why;
-
-    const ul = el("bullets");
-    ul.innerHTML = "";
-    for (const b of state.bullets || []) {
-      const li = document.createElement("li");
-      li.textContent = b;
-      ul.appendChild(li);
     }
   }
 
