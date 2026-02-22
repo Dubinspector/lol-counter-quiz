@@ -47,13 +47,17 @@
     .result { margin-top: 10px; font-weight: 900; }
     .ok { color:#59d36b; }
     .bad { color:#ff5c5c; }
-    .small { font-size: 12px; color:#bdbdbd; }
+    .small { font-size: 12px; color:#bdbdbd; line-height: 1.35; }
     .pill { padding: 6px 10px; border:1px solid #2a2a2a; border-radius: 999px; background:#121212; font-size: 12px; color:#d6d6d6; }
     footer { padding: var(--pad); color:#9a9a9a; font-size: 11px; line-height: 1.35; }
     .itemsRow { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     .mini { width: 44px; height: 44px; border-radius: 12px; border:1px solid #222; background:#000; object-fit:cover; }
     .actionsRow { display:flex; gap: 10px; margin-top: 12px; }
     #nextBtn { display:none; width:100%; }
+    .analysisBox { margin-top: 10px; padding: 10px; border:1px solid #222; border-radius: 14px; background:#0e0e0e; }
+    .analysisBox .t { font-weight: 900; margin-bottom: 6px; }
+    .analysisBox ul { margin: 8px 0 0 16px; padding: 0; }
+    .analysisBox li { margin: 4px 0; }
   </style>
 </head>
 <body>
@@ -84,6 +88,10 @@
       <div class="label" style="margin-top:14px;">Nejhranější build (z LoG) – jen hotové itemy</div>
       <div class="itemsRow" id="enemyBuildIcons"></div>
       <div class="sub" id="enemyBuildInfo" style="margin-top:8px;">—</div>
+
+      <div class="label" style="margin-top:14px;">Tvůj build (simulace – jen hotové itemy)</div>
+      <div class="itemsRow" id="playerBuildIcons"></div>
+      <div class="sub" id="playerBuildInfo" style="margin-top:8px;">—</div>
     </div>
 
     <div class="card">
@@ -100,7 +108,12 @@
       <div class="choices" id="choices"></div>
 
       <div class="result" id="result"></div>
-      <div class="small" id="reason"></div>
+
+      <div class="analysisBox" id="analysisBox" style="display:none;">
+        <div class="t">Vysvětlení</div>
+        <div class="small" id="reason"></div>
+        <ul class="small" id="bullets"></ul>
+      </div>
 
       <div class="actionsRow">
         <button class="primary" id="nextBtn">Další</button>
@@ -198,9 +211,9 @@
     return true;
   }
 
+  const COMPLETED_POOL = items.filter(isCompletedItem);
   function fallbackAnyCompletedItem() {
-    const pool = items.filter(isCompletedItem);
-    return rand(pool).id;
+    return rand(COMPLETED_POOL).id;
   }
 
   // Normalize + map LoG names -> Riot items
@@ -230,7 +243,6 @@
       if (n === b && itemByNormName.has(a)) return itemByNormName.get(a);
     }
 
-    // last resort: contains
     for (const [k, v] of itemByNormName.entries()) {
       if (k.includes(n) || n.includes(k)) return v;
     }
@@ -288,13 +300,10 @@
     return false;
   }
 
-  function renderEnemyBuildRowIcons(row) {
-    const wrap = el("enemyBuildIcons");
+  function renderIcons(containerId, itemList) {
+    const wrap = el(containerId);
     wrap.innerHTML = "";
-    const completed = getCompletedEnemyItemsFromRow(row);
-    if (completed.length === 0) return 0;
-
-    for (const it of completed) {
+    for (const it of itemList) {
       const img = document.createElement("img");
       img.className = "mini";
       img.alt = it.name;
@@ -302,6 +311,11 @@
       img.src = it.icon;
       wrap.appendChild(img);
     }
+  }
+
+  function renderEnemyBuildRowIcons(row) {
+    const completed = getCompletedEnemyItemsFromRow(row);
+    renderIcons("enemyBuildIcons", completed);
     return completed.length;
   }
 
@@ -333,15 +347,70 @@
     return { slug, lane, rank, phase, bestRow: best };
   }
 
-  // Counter logic (threat based)
-  function counterForRow(enemyChampId, enemyLane, row, playerChamp) {
+  // --- build simulace hráče (pro vysvětlení) ---
+  function simulatePlayerBuild(playerChamp, phase) {
+    // jednoduché: vyber 3-4 completed itemy podle archetypu
+    const arch = playerArchetype(playerChamp);
+
+    const wantTag = (tag) => COMPLETED_POOL.filter(it => (it.tags||[]).includes(tag));
+    const pickUnique = (pool, n, forbidIds=new Set()) => {
+      const out = [];
+      const src = pool.slice();
+      while (out.length < n && src.length) {
+        const it = rand(src);
+        src.splice(src.indexOf(it), 1);
+        if (forbidIds.has(it.id)) continue;
+        forbidIds.add(it.id);
+        out.push(it);
+      }
+      return out;
+    };
+
+    const forbid = new Set();
+    let base = [];
+
+    if (arch === "AD") {
+      base = pickUnique(
+        wantTag("Damage").concat(wantTag("CriticalStrike"), wantTag("AttackSpeed")),
+        phase === "late" ? 4 : 3,
+        forbid
+      );
+    } else if (arch === "AP") {
+      base = pickUnique(
+        wantTag("SpellDamage").concat(wantTag("ManaRegen"), wantTag("CooldownReduction")),
+        phase === "late" ? 4 : 3,
+        forbid
+      );
+    } else if (arch === "TANK") {
+      base = pickUnique(
+        wantTag("Health").concat(wantTag("Armor"), wantTag("SpellBlock")),
+        phase === "late" ? 4 : 3,
+        forbid
+      );
+    } else {
+      base = pickUnique(
+        wantTag("ManaRegen").concat(wantTag("Health"), wantTag("CooldownReduction")),
+        phase === "late" ? 4 : 3,
+        forbid
+      );
+    }
+
+    // fallback když něco nevyšlo
+    while (base.length < (phase === "late" ? 4 : 3)) {
+      const it = rand(COMPLETED_POOL);
+      if (!forbid.has(it.id)) { forbid.add(it.id); base.push(it); }
+    }
+
+    return base;
+  }
+
+  // --- counter logic (returns structured analysis) ---
+  function counterForRow(enemyChampId, enemyLane, phase, row, playerChamp, playerBuild) {
     const enemyCompleted = getCompletedEnemyItemsFromRow(row);
     const enemyText = (row?.items || []).map(x => (x?.name || "").toLowerCase()).join(" | ");
     const arch = playerArchetype(playerChamp);
 
-    const countTag = (tag) => enemyCompleted.reduce((acc,it)=>{
-      return acc + ((it.tags||[]).includes(tag) ? 1 : 0);
-    },0);
+    const countTag = (tag) => enemyCompleted.reduce((acc,it)=> acc + ((it.tags||[]).includes(tag) ? 1 : 0), 0);
 
     const pick = (names, fallbackId) => {
       for (const n of names) {
@@ -351,6 +420,9 @@
       return fallbackId;
     };
 
+    const threats = [];
+    const bullets = [];
+
     const looksShield = ["lulu","janna","karma","shen","lux","seraphine","sion"].some(s => enemyChampId.toLowerCase().includes(s));
     const looksHeal = ["aatrox","vladimir","soraka","swain","warwick","mundo","briar","olaf"].some(s => enemyChampId.toLowerCase().includes(s)) ||
                       ["riftmaker","ravenous","bloodthirster","vamp","omnivamp"].some(s => enemyText.includes(s));
@@ -359,43 +431,94 @@
     const armorStack = countTag("Armor") >= 2 || countTag("Health") >= 3;
     const apStack = countTag("SpellDamage") >= 2;
 
+    let kind = "fallback";
+    let itemId = null;
+
     if (looksShield) {
-      const id = pick(["Serpent's Fang"], fallbackAnyCompletedItem());
-      return { itemId: id, reason: "Enemy má hodně shieldů → antishield." };
+      kind = "antishield";
+      itemId = pick(["Serpent's Fang"], null);
+      threats.push("shields");
+      bullets.push("Oponent má hodně shieldů → bez antishieldu se damage často „ztratí“ do štítů.");
+      bullets.push("V teamfightu to znamená, že tvůj burst/DPS neprojde na carry nebo na frontu.");
     }
 
-    if (looksHeal) {
-      let id = null;
-      if (arch === "AP") id = pick(["Morellonomicon"], null);
-      if (arch === "TANK" || arch === "SUPPORT") id = pick(["Thornmail"], null);
-      if (!id) id = pick(["Mortal Reminder","Chempunk Chainsword"], fallbackAnyCompletedItem());
-      return { itemId: id, reason: "Enemy má sustain/heal → antiheal." };
+    if (!itemId && looksHeal) {
+      kind = "antiheal";
+      threats.push("healing");
+      if (arch === "AP") itemId = pick(["Morellonomicon"], null);
+      if (!itemId && (arch === "TANK" || arch === "SUPPORT")) itemId = pick(["Thornmail"], null);
+      if (!itemId) itemId = pick(["Mortal Reminder","Chempunk Chainsword"], null);
+      bullets.push("Oponent má heal/sustain → bez Grievous Wounds se ti fight protáhne a on se vyhealí.");
+      bullets.push("V 5v5 to často rozhoduje objektivy: drake/baron se nedá „přetlačit“ proti sustainu.");
     }
 
-    if (looksCrit) {
-      const id = pick(["Randuin's Omen","Frozen Heart"], fallbackAnyCompletedItem());
-      return { itemId: id, reason: "Enemy je crit/autoattack DPS → anti-crit/anti-AA." };
+    if (!itemId && looksCrit) {
+      kind = "anticrit";
+      threats.push("crit/AA DPS");
+      itemId = pick(["Randuin's Omen","Frozen Heart"], null);
+      bullets.push("Oponent má crit/autoattack DPS → potřebuješ snížit jejich DPS a přežít první burst.");
+      bullets.push("To zvyšuje šanci, že dohraješ fight a tvoje role bude mít value i proti fed carry.");
     }
 
-    if (armorStack) {
-      const id = pick(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"], fallbackAnyCompletedItem());
-      return { itemId: id, reason: "Enemy stackuje armor/HP → penetration." };
+    if (!itemId && armorStack) {
+      kind = "armorpen";
+      threats.push("armor/HP stack");
+      itemId = pick(["Lord Dominik's Regards","Serylda's Grudge","Black Cleaver"], null);
+      bullets.push("Oponent stackuje armor/HP → bez penetrace mu prostě neubereš dost, i když hraješ dobře.");
+      bullets.push("V late game 5v5 je bez pen často nemožné zabít frontu, takže se nedostaneš na backline.");
     }
 
-    if (apStack) {
-      const id = pick(["Kaenic Rookern","Force of Nature","Maw of Malmortius","Wit's End"], fallbackAnyCompletedItem());
-      return { itemId: id, reason: "Enemy je silně AP → MR item." };
+    if (!itemId && apStack) {
+      kind = "mr";
+      threats.push("AP damage");
+      itemId = pick(["Kaenic Rookern","Force of Nature","Maw of Malmortius","Wit's End"], null);
+      bullets.push("Oponent má hodně AP damage → MR item ti dá čas přežít combo a pokračovat ve fightu.");
+      bullets.push("Bez MR často umřeš dřív, než vůbec stihneš udělat svůj job (DPS/peel/engage).");
     }
 
-    const fallbackList = ["Guardian Angel","Banshee's Veil","Edge of Night","Mikael's Blessing"];
-    const id = pick(fallbackList, fallbackAnyCompletedItem());
-    return { itemId: id, reason: "Není jasný hard-counter → defensivní/outplay item." };
+    if (!itemId) {
+      kind = "fallback";
+      itemId = pick(["Guardian Angel","Banshee's Veil","Edge of Night","Mikael's Blessing"], null) || fallbackAnyCompletedItem();
+      bullets.push("Není jasný jeden hard-counter z buildu → ber bezpečný defensivní/outplay item.");
+      bullets.push("Cíl: přežít klíčový moment fightu a mít další pokus (GA/spell shield/cleanse).");
+    }
+
+    if (!itemId) itemId = fallbackAnyCompletedItem();
+
+    // --- sestav “narativ” vysvětlení ---
+    const laneText = enemyLane;
+    const phaseText = phase === "late" ? "late game" : "mid game";
+    const playerItems = playerBuild.map(x => x.name).join(", ");
+    const enemyItems = enemyCompleted.map(x => x.name).join(", ");
+
+    let why = "";
+    if (kind === "armorpen") {
+      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má build s armor/HP a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je penetrační item, protože bez armor pen mu nebudeš ubírat. V 5v5 se pak neprosekáš přes frontu, nedostaneš se na backline a jsi bez dopadu.`;
+    } else if (kind === "antiheal") {
+      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má sustain/heal a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je antiheal, protože jinak se v delším fightu vyhealí a objektivy se nedají uhrát přes sustain.`;
+    } else if (kind === "antishield") {
+      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má shields a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je antishield, protože bez něj ti damage mizí do štítů a nedokážeš vymazat carry ani prorazit frontu v teamfightu.`;
+    } else if (kind === "anticrit") {
+      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má crit/AA DPS a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je anti-crit/anti-AA item, protože sníží jeho DPS a ty přežiješ první vlnu damage. V 5v5 pak můžeš dokončit fight.`;
+    } else if (kind === "mr") {
+      why = `Jsi na ${laneText}, je ${phaseText}. Oponent má silné AP damage a hotové itemy: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Správná volba je MR item, protože bez něj umřeš na combo dřív, než uděláš svůj job.`;
+    } else {
+      why = `Jsi na ${laneText}, je ${phaseText}. Enemy build: ${enemyItems}. Tvůj build (simulace): ${playerItems}. Z těchto dat nevychází jeden tvrdý counter, takže správná volba je bezpečný defensivní/outplay item, aby ses udržel naživu v klíčové části fightu.`;
+    }
+
+    return {
+      counterItemId: itemId,
+      kind,
+      threats,
+      why,
+      bullets
+    };
   }
 
   // Wrong choices: completed only
   function pickWrongChoices(correctId) {
     const correct = itemById.get(correctId);
-    const poolAll = items.filter(i => isCompletedItem(i) && i.id !== correctId);
+    const poolAll = COMPLETED_POOL.filter(i => i.id !== correctId);
 
     const correctTags = new Set(correct?.tags ?? []);
     const scored = poolAll.map(i => {
@@ -404,7 +527,7 @@
       for (const t of i.tags ?? []) if (correctTags.has(t)) tagOverlap++;
       const score = price - tagOverlap * 150;
       return { i, score };
-    }).sort((a,b)=>a.score-b.score).slice(0, 240).map(x=>x.i);
+    }).sort((a,b)=>a.score-b.score).slice(0, 260).map(x=>x.i);
 
     const out = [];
     while (out.length < 2 && scored.length) {
@@ -420,7 +543,13 @@
     btns.forEach(b => b.disabled = locked);
   }
 
-  let state = { correctId: null, correctName: "", reason: "" };
+  let state = {
+    correctId: null,
+    correctName: "",
+    why: "",
+    bullets: [],
+    roundMeta: null
+  };
 
   async function newRound() {
     awaitingNext = false;
@@ -430,8 +559,11 @@
 
     el("result").textContent = "";
     el("result").className = "result";
-    el("reason").textContent = "";
     el("choices").innerHTML = "";
+
+    el("analysisBox").style.display = "none";
+    el("reason").textContent = "";
+    el("bullets").innerHTML = "";
 
     const enemyPick = pickEnemyFromLog();
     const enemyChamp = findChampBySlug(enemyPick.slug);
@@ -443,22 +575,29 @@
     const row = enemyPick.bestRow;
     if (!row) return newRound();
 
-    const shown = renderEnemyBuildRowIcons(row);
-    if (shown === 0) return newRound();
+    const enemyShown = renderEnemyBuildRowIcons(row);
+    if (enemyShown === 0) return newRound();
 
     const pickRate = row.pickRate ?? null;
     const winRate = row.winRate ?? null;
     el("enemyBuildInfo").textContent = `Pick: ${pickRate ?? "—"}% • Win: ${winRate ?? "—"}%`;
 
-    const counter = counterForRow(enemyChamp.id, enemyPick.lane, row, playerChamp);
-    const correctId = (counter?.itemId && isCompletedItem(itemById.get(counter.itemId))) ? counter.itemId : fallbackAnyCompletedItem();
+    // simulate player build for explanation
+    const playerBuild = simulatePlayerBuild(playerChamp, enemyPick.phase);
+    renderIcons("playerBuildIcons", playerBuild);
+    el("playerBuildInfo").textContent = `Simulace pro vysvětlení (${enemyPick.phase}): ${playerBuild.map(x=>x.name).join(", ")}`;
+
+    const analysis = counterForRow(enemyChamp.id, enemyPick.lane, enemyPick.phase, row, playerChamp, playerBuild);
+    const correctId = analysis.counterItemId;
 
     const wrongIds = pickWrongChoices(correctId);
     const ids = shuffle([correctId, ...wrongIds]);
 
     state.correctId = correctId;
     state.correctName = itemById.get(correctId)?.name ?? String(correctId);
-    state.reason = counter.reason;
+    state.why = analysis.why;
+    state.bullets = analysis.bullets;
+    state.roundMeta = { enemyPick, enemyChamp, playerChamp, playerBuild };
 
     for (const id of ids) {
       const it = itemById.get(id);
@@ -467,6 +606,19 @@
       btn.innerHTML = `<img src="${it.icon}" alt="${it.name}"><div class="nm">${it.name}</div>`;
       btn.onclick = () => onPick(id);
       el("choices").appendChild(btn);
+    }
+  }
+
+  function renderAnalysis() {
+    el("analysisBox").style.display = "block";
+    el("reason").textContent = state.why;
+
+    const ul = el("bullets");
+    ul.innerHTML = "";
+    for (const b of state.bullets || []) {
+      const li = document.createElement("li");
+      li.textContent = b;
+      ul.appendChild(li);
     }
   }
 
@@ -492,7 +644,8 @@
 
     scoreEl.textContent = String(SCORE);
     streakEl.textContent = String(STREAK);
-    el("reason").textContent = state.reason;
+
+    renderAnalysis();
 
     nextBtn.style.display = "inline-block";
     nextBtn.disabled = false;
