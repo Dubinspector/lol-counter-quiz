@@ -193,7 +193,8 @@
       patchMetaEl.textContent = "Chyba: dataset má špatný formát (chybí .champions)";
       return;
     }
-    const RANKS = ["silver", "gold"];
+    const RANKS = ["ranked_solo:silver","ranked_solo:gold","ranked_solo:platinum","ranked_solo:emerald","ranked_solo:diamond",
+               "normal_draft:silver","normal_draft:gold","normal_draft:platinum","normal_draft:emerald","normal_draft:diamond"];
 
     // ---- get CURRENT patch for assets via realms/<region>.json ----
     async function getLatestPatchFromRealms(region) {
@@ -859,4 +860,5 @@
 </script>
 </body>
 </html>
+
 
