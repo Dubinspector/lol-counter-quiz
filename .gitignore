@@ -1,18 +1,25 @@
-# Python
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 venv/
+.env
 
-# Node
-node_modules/
-
-# Outputs / data
+# --- Generated / large data (collector outputs) ---
 out/raw/
-out/*.joblib
 out/*.csv
+out/*.joblib
+out/*.pkl
+match/
+timeline/
 
-# Local stuff
-.DS_Store
+# --- OS ---
 Thumbs.db
-*.log
+.DS_Store
