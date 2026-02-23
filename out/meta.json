@@ -1,0 +1,25 @@
+{
+  "platform": "EUW1",
+  "regional": "EUROPE",
+  "queues": [
+    420,
+    400
+  ],
+  "tiers": [
+    "SILVER",
+    "GOLD",
+    "PLATINUM",
+    "EMERALD",
+    "DIAMOND"
+  ],
+  "divisions": [
+    "I",
+    "II",
+    "III",
+    "IV"
+  ],
+  "collectedAt": "2026-02-22T15:20:21.095Z",
+  "players": 1400,
+  "matchesSaved": 1933,
+  "skippedQueue": 599
+}

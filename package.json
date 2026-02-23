@@ -1,0 +1,21 @@
+{
+  "name": "riot-collector",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Riot API collector (EUW ranked solo) -> log_builds.json for LoL Counter Quiz",
+  "main": "collect.js",
+  "scripts": {
+    "extract": "node scripts/extract.mjs",
+    "build_datasets": "node scripts/build_datasets.mjs",
+    "pipeline": "npm run extract && npm run build_datasets"
+  },
+  "dependencies": {
+    "fast-csv": "^5.0.5",
+    "p-limit": "^6.2.0",
+    "undici": "^7.4.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
