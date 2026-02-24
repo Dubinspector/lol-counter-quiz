@@ -118,9 +118,9 @@
       background: var(--panel2);
       object-fit:cover;
     }
-    .champMeta{display:flex; flex-direction:column; gap:4px}
-    .champName{font-size:18px; font-weight:750}
-    .sub{font-size:12px; color:var(--muted)}
+    .champMeta{display:flex; flex-direction:column; gap:4px; min-width:0}
+    .champName{font-size:18px; font-weight:750; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+    .sub{font-size:12px; color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
     .sectionTitle{
       margin-top:16px;
       font-size:12px;
@@ -172,8 +172,8 @@
       display:flex; align-items:center; justify-content:space-between; gap:12px;
       margin-bottom:10px;
     }
-    .qleft{display:flex; align-items:center; gap:10px}
-    .qname{font-size:13px; color:var(--muted)}
+    .qleft{display:flex; align-items:center; gap:10px; min-width:0}
+    .qname{font-size:13px; color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
     .opts{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;}
     @media (max-width: 980px){
       .opts{grid-template-columns:1fr}
@@ -522,7 +522,7 @@
 (() => {
   "use strict";
 
-  const BUILD_ID = "build-2026-02-24-libdpsspells11";
+  const BUILD_ID = "build-2026-02-24-libdpsspells13meta";
 
   
 
@@ -630,9 +630,15 @@
   const libPage = document.getElementById("libPage");
 
   // Data
+  let datasetMeta = null;
   let logData = null;
   let logDataRawText = "";
   let scenarioIndex = new Map();
+
+  // Cross-function context (avoid ReferenceError)
+  let lane = null;      // current GT lane for filtering
+  let enemyMeta = null; // current enemy item meta (for jungle-only gating)
+
 
   let ddragonPatch = null;
   let champMeta = {};   // minimal for display
@@ -696,44 +702,6 @@ const fmt = (x, d=0) => Number.isFinite(x) ? x.toFixed(d) : "—";
     return champData[key] || champData[slug] || null;
   }
   function it(id){ return itemMeta[String(id)] || null; }
-let itemNameToId = new Map();
-function normName(s){
-  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-function buildItemNameMap(){
-  itemNameToId = new Map();
-  for (const it0 of Object.values(itemMeta || {})){
-    const k = normName(it0?.name);
-    if (!k) continue;
-    if (!itemNameToId.has(k)) itemNameToId.set(k, it0.id);
-  }
-}
-function resolveItemId(raw){
-  if (raw == null) return null;
-  let v = raw;
-  if (v && typeof v === "object"){
-    v = v.id ?? v.itemId ?? v.item ?? v.value ?? v.name ?? null;
-  }
-  if (v == null) return null;
-
-  if (typeof v === "number"){
-    if (Number.isFinite(v) && v > 0) return Math.trunc(v);
-    return null;
-  }
-
-  const s = String(v).trim();
-  if (!s) return null;
-
-  const mm = s.match(/\b(\d{3,5})\b/);
-  if (mm){
-    const n = Number(mm[1]);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-
-  const k = normName(s);
-  return itemNameToId.get(k) ?? null;
-}
-
 
   function weightedPick(list, weightKey){
     let total = 0;
@@ -786,45 +754,61 @@ function resolveItemId(raw){
   }
 
   // Keep one boots: pick the most expensive boots, drop the rest.
+  function normName(s){
+    return String(s||"")
+      .toLowerCase()
+      .replace(/&amp;/g,"&")
+      .replace(/['’`]/g,"")
+      .replace(/[^a-z0-9+& ]+/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+  }
+
+  const itemNameToId = new Map();
+  function buildItemNameMap(){
+    itemNameToId.clear();
+    for (const m of Object.values(itemMeta || {})){
+      if (!m || !m.name) continue;
+      itemNameToId.set(normName(m.name), Number(m.id));
+    }
+  }
+
+  function resolveItemId(raw){
+    if (raw == null) return null;
+    let v = raw;
+    if (v && typeof v === "object"){
+      v = v.id ?? v.itemId ?? v.item ?? v.value ?? v.name ?? v.itemName ?? v.displayName ?? null;
+    }
+    if (v == null) return null;
+
+    if (typeof v === "number"){
+      if (Number.isFinite(v) && v > 0) return Math.trunc(v);
+      return null;
+    }
+
+    const s = String(v).trim();
+    if (!s) return null;
+
+    const mm = s.match(/\b(\d{3,5})\b/);
+    if (mm){
+      const n = Number(mm[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+
+    const k = normName(s);
+    return itemNameToId.get(k) ?? null;
+  }
+
   function filterEnemyItems(items){
     const cleaned = [];
     for (const raw of items || []){
-      const id0 = resolveItemId(raw);
-      if (!id0 || id0 <= 0) continue;
-
-      let id = id0;
-
-      // if id not known in this patch, try name recovery if available
-      if (!it(id)){
-        const name = (raw && typeof raw === "object") ? (raw.name ?? raw.itemName ?? raw.displayName ?? null) : null;
-        const nid = name ? (itemNameToId.get(normName(name)) ?? null) : null;
-        if (!nid || !it(nid)) continue;
-        id = nid;
-      }
-
-      if (itemIsBanned(id)) continue;
-      cleaned.push(id);
-    }
-
-    let u = uniq(cleaned);
-
-    const boots = u.filter(isBoots);
-    if (boots.length > 1){
-      boots.sort((a,b)=>(it(b)?.totalGold||0)-(it(a)?.totalGold||0));
-      const keep = boots[0];
-      u = u.filter(x=>!isBoots(x) || x===keep);
-    }
-    return u.slice(0,6);
-  }
-
-
-      const id = Number(v);
-      if (!Number.isFinite(id) || id <= 0) continue;
+      const id = resolveItemId(raw);
+      if (!id || id <= 0) continue;
       if (!it(id)) continue;
       if (itemIsBanned(id)) continue;
       cleaned.push(id);
     }
-    // unique by id first
+
     let u = uniq(cleaned);
 
     // boots class constraint
@@ -834,9 +818,9 @@ function resolveItemId(raw){
       const keep = boots[0];
       u = u.filter(x=>!isBoots(x) || x===keep);
     }
-    // avoid double "boots" via base+upgrade by always prefer the higher gold one (already done)
     return u.slice(0,6);
   }
+
 
   // ---------- Dataset normalize ----------
   function normalizeRow(r){
@@ -1116,7 +1100,8 @@ function resolveItemId(raw){
       if (!m) continue;
 
       // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
-      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      const em = enemyMeta || null;
+      const targetIsJungleOnly = (em?.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em?.name||""));
       if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
         if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
       }
@@ -1415,7 +1400,8 @@ function resolveItemId(raw){
       if (!m) continue;
 
       // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
-      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      const em = enemyMeta || null;
+      const targetIsJungleOnly = (em?.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em?.name||""));
       if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
         if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
       }
@@ -1444,7 +1430,8 @@ function resolveItemId(raw){
         const m = it(id);
         if (!m) continue;
 
-        const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+        // (shadow removed) use enemy item meta from outer scope
+      const targetIsJungleOnly = (em?.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em?.name||""));
         if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
           if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
         }
@@ -1640,14 +1627,15 @@ left.appendChild(img);
   }
 
   // ---------- Library modal ----------
-  function rebuildTagOptions(pool){
+  function rebuildTagOptions(pool, enemyMeta){
     const tags = new Set();
     for (const id of pool){
       const m = it(id);
       if (!m) continue;
 
       // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
-      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      const em = enemyMeta || null;
+      const targetIsJungleOnly = (em?.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em?.name||""));
       if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
         if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
       }
@@ -1679,12 +1667,12 @@ left.appendChild(img);
     libTag.value = "";
 
     const enemy = it(row.enemyItemId);
+    enemyMeta = enemy || null;
     libTitle.textContent = `Knihovna: ${enemy?.name || row.enemyItemId}`;
     libMeta.textContent = `gold ${enemy?.totalGold ?? "?"} • depth ${computeItemDepth(row.enemyItemId)} • pool ${row.poolIds.length}`;
 
-    rebuildTagOptions(libState.pool);
-
-    libBackdrop.style.display = "flex";
+    rebuildTagOptions(libState.pool, it(row.enemyItemId));
+libBackdrop.style.display = "flex";
     libBackdrop.setAttribute("aria-hidden","false");
 
     renderLibrary();
@@ -1692,6 +1680,7 @@ left.appendChild(img);
   }
 
   function closeLibrary(){
+    enemyMeta = null;
     libState.open = false;
     libState.qIndex = -1;
     libBackdrop.style.display = "none";
@@ -1736,7 +1725,8 @@ left.appendChild(img);
       if (!m) continue;
 
       // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
-      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      const em = enemyMeta || null;
+      const targetIsJungleOnly = (em?.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em?.name||""));
       if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
         if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
       }
@@ -1952,7 +1942,8 @@ left.appendChild(img);
   function buildRound(){
     clearRoundUI();
 
-    const lane = chooseLane();
+    lane = chooseLane();
+    enemyMeta = null;
     const rank = chooseRank();
     const phase = choosePhase();
     const meSlug = chooseMeChampion(lane, rank, phase);
@@ -1988,7 +1979,7 @@ left.appendChild(img);
     }
 
     if (!pool.length){
-      console.warn("No viable rows after filterEnemyItems. itemMeta size:", allItemIds.length);
+      console.warn("No viable rows after filterEnemyItems. itemMeta size:", Object.keys(itemMeta||{}).length);
       throw new Error(`Nenalezen oponent s itemy po filtru. Patch=${ddragonPatch}. Zkus otevřít s ?patch=15.4.1 (nebo podle gameVersion datasetu).`);
     }
 
@@ -2038,6 +2029,19 @@ left.appendChild(img);
     }
   });
 
+
+  async function loadMeta(){
+    datasetMeta = null;
+    try{
+      const r = await fetch("./data/meta.json", { cache: "no-store" });
+      if (r.ok){
+        datasetMeta = await r.json();
+      }
+    } catch(_){
+      datasetMeta = null;
+    }
+  }
+
   async function loadDataset(){
     statusEl.textContent = "Načítám dataset…";
     const r = await fetch("./data/log_builds.json", { cache: "no-store" });
@@ -2050,83 +2054,16 @@ left.appendChild(img);
     if (!scenarioIndex.size) throw new Error("Nepodařilo se znormalizovat log_builds.json (0 buckets).");
   }
 
-  function extractItemSampleFromRaw(raw, maxIds=800){
-    if (!raw) return [];
-    const out = new Set();
-
-    // Arrays like: "items":[1001,3006,...] (also itemIds/build/enemyItems)
-    const arrRe = /"(?:items|itemIds|build|enemyItems)"\s*:\s*\[([^\]]+)\]/gi;
-    let m;
-    while ((m = arrRe.exec(raw)) !== null){
-      const seg = m[1];
-      const nums = seg.match(/\b\d{3,5}\b/g);
-      if (!nums) continue;
-      for (const s of nums){
-        const n = Number(s);
-        if (Number.isFinite(n) && n > 0) out.add(n);
-        if (out.size >= maxIds) return Array.from(out);
-      }
-    }
-
-    // Object forms like: {"itemId":3006} or {"id":1001}
-    const kvRe = /"(?:itemId|id)"\s*:\s*(\d{3,5})/g;
-    while ((m = kvRe.exec(raw)) !== null){
-      const n = Number(m[1]);
-      if (Number.isFinite(n) && n > 0) out.add(n);
-      if (out.size >= maxIds) break;
-    }
-
-    return Array.from(out);
-  }
-
   function extractDatasetItemSample(maxIds=800){
-    // Prefer raw scan (robust across schema changes).
-    const fromRaw = extractItemSampleFromRaw(logDataRawText, maxIds);
-    if (fromRaw.length) return fromRaw;
-
-    // Fallback: walk normalized rows.
     const out = new Set();
     for (const rows of scenarioIndex.values()){
       for (const r of rows){
-        const items = r?.items ?? [];
-        if (typeof items === "string"){
-          const nums = items.match(/\b\d{3,5}\b/g) || [];
-          for (const s of nums){
-            const n = Number(s);
-            if (Number.isFinite(n) && n > 0) out.add(n);
-            if (out.size >= maxIds) return Array.from(out);
-          }
-          continue;
-        }
-        if (!Array.isArray(items)) continue;
-
+        const items = r?.items || [];
         for (const raw of items){
           let v = raw;
           if (v && typeof v === "object"){
-            v = v.id ?? v.itemId ?? v.item ?? v.value ?? v.name ?? null;
+            v = v.id ?? v.itemId ?? v.item ?? v.value ?? null;
           }
-          if (v == null) continue;
-
-          if (typeof v === "string"){
-            const mm = v.match(/\b(\d{3,5})\b/);
-            if (mm){
-              const n = Number(mm[1]);
-              if (Number.isFinite(n) && n > 0) out.add(n);
-              if (out.size >= maxIds) return Array.from(out);
-              continue;
-            }
-          }
-
-          const n = Number(v);
-          if (Number.isFinite(n) && n > 0) out.add(n);
-          if (out.size >= maxIds) return Array.from(out);
-        }
-      }
-    }
-    return Array.from(out);
-  }
-
-
           const n = Number(v);
           if (Number.isFinite(n) && n > 0) out.add(n);
           if (out.size >= maxIds) return Array.from(out);
@@ -2154,6 +2091,7 @@ async function detectDdragonPatch(){
   const qp = new URLSearchParams(location.search);
   const forced = qp.get("patch");
   if (forced) return forced;
+  if (datasetMeta?.ddragonPatch) return String(datasetMeta.ddragonPatch);
 
   // dataset metadata
   const gv = String(logData?.gameVersion ?? logData?.meta?.gameVersion ?? logData?.meta?.patch ?? logData?.patch ?? "");
@@ -2318,10 +2256,9 @@ async function detectDdragonPatch(){
 
       allItemIds.push(nid);
     }
-
     buildItemNameMap();
 
-    statusEl.textContent = `Ready (${BUILD_ID}) • Patch ${ddragonPatch} • Champs ${Object.keys(champMeta).length} • Items ${allItemIds.length}`;
+    statusEl.textContent = `Ready (${BUILD_ID}) • Patch ${ddragonPatch}` + (datasetMeta?.datasetPatch ? ` • Dataset ${datasetMeta.datasetPatch}` : ``) + ` • Champs ${Object.keys(champMeta).length} • Items ${allItemIds.length}`;
   }
 
   function populateChampionSelect(){
@@ -2389,7 +2326,10 @@ async function detectDdragonPatch(){
 
   async function init(){
     try{
+      await loadMeta();
       await loadDataset();
+      const qp = new URLSearchParams(location.search);
+      ddragonPatch = qp.get("patch") || datasetMeta?.ddragonPatch || ddragonPatch;
       await loadDdragon();
       populateChampionSelect();
       populateLaneRankPhase();
