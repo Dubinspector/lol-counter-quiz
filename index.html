@@ -522,7 +522,7 @@
 (() => {
   "use strict";
 
-  const BUILD_ID = "build-2026-02-24-libdpsspells6";
+  const BUILD_ID = "build-2026-02-24-libdpsspells7b";
 
   
 
@@ -673,8 +673,15 @@
     }
     return out;
   };
-  const fmtPct = (x) => (Number.isFinite(x) ? (x*100).toFixed(2)+"%" : "—");
-  const fmt = (x, d=0) => Number.isFinite(x) ? x.toFixed(d) : "—";
+  const fmtPct = (x) => {
+    const n = Number(x);
+    if (!Number.isFinite(n)) return "—";
+    let v = n;
+    if (v > 100) v = v / 100;
+    if (v <= 1.0001) v = v * 100;
+    return v.toFixed(2) + "%";
+  };
+const fmt = (x, d=0) => Number.isFinite(x) ? x.toFixed(d) : "—";
   const rnd = (arr)=>arr[Math.floor(Math.random()*arr.length)];
 
   function ddChamp(slug){
@@ -1887,11 +1894,24 @@ left.appendChild(img);
       throw new Error("Dataset je prázdný po normalizaci.");
     }
 
-    const oppRow = weightedPick(candidates, "games");
-
-    const oppSlug = oppRow.oppSlug;
-    const oppItems = filterEnemyItems(oppRow.items || []);
-    if (!oppItems.length) throw new Error("Oponent nemá itemy po filtru.");
+    let oppRow = null;
+    let oppSlug = null;
+    let oppItems = null;
+    const MAX_TRIES = 60;
+    for (let t = 0; t < MAX_TRIES; t++){
+      const r = weightedPick(candidates, "games");
+      const slug = r.oppSlug ?? r.enemySlug ?? r.opponentSlug ?? r.enemy ?? null;
+      const items = filterEnemyItems(r.items || []);
+      if (slug && items && items.length){
+        oppRow = r;
+        oppSlug = slug;
+        oppItems = items;
+        break;
+      }
+    }
+    if (!oppItems){
+      throw new Error("Nenalezen oponent s itemy po filtru (DD mismatch / příliš agresivní filtr / prázdná data pro bucket).");
+    }
 
     setMeUI(meSlug, lane, rank, phase);
     setOppUI(oppSlug, lane, rank, phase, oppRow.pickRate, oppRow.winRate, oppRow.games, oppRow.vsSlug);
