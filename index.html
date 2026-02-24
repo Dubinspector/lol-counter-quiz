@@ -522,7 +522,7 @@
 (() => {
   "use strict";
 
-  const BUILD_ID = "build-2026-02-24-libdpsspells8";
+  const BUILD_ID = "build-2026-02-24-libdpsspells9";
 
   
 
@@ -750,7 +750,11 @@ const fmt = (x, d=0) => Number.isFinite(x) ? x.toFixed(d) : "—";
   function filterEnemyItems(items){
     const cleaned = [];
     for (const raw of items || []){
-      const id = Number(raw);
+      let v = raw;
+      if (v && typeof v === "object"){
+        v = v.id ?? v.itemId ?? v.item ?? v.value ?? null;
+      }
+      const id = Number(v);
       if (!Number.isFinite(id) || id <= 0) continue;
       if (!it(id)) continue;
       if (itemIsBanned(id)) continue;
@@ -1979,11 +1983,75 @@ left.appendChild(img);
     if (!scenarioIndex.size) throw new Error("Nepodařilo se znormalizovat log_builds.json (0 buckets).");
   }
 
+  function extractDatasetItemSample(maxIds=800){
+    const out = new Set();
+    for (const rows of scenarioIndex.values()){
+      for (const r of rows){
+        const items = r?.items || [];
+        for (const raw of items){
+          let v = raw;
+          if (v && typeof v === "object"){
+            v = v.id ?? v.itemId ?? v.item ?? v.value ?? null;
+          }
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) out.add(n);
+          if (out.size >= maxIds) return Array.from(out);
+        }
+      }
+    }
+    return Array.from(out);
+  }
+
+  async function detectDdragonPatch(){
+    const qp = new URLSearchParams(location.search);
+    const forced = qp.get("patch");
+    if (forced) return forced;
+
+    // try dataset metadata like "15.4.657.5386" -> prefer "15.4.*"
+    const gv = String(logData?.gameVersion ?? logData?.meta?.gameVersion ?? logData?.meta?.patch ?? logData?.patch ?? "");
+    const mm = gv.match(/(\d+)\.(\d+)/);
+    const preferPrefix = mm ? `${mm[1]}.${mm[2]}` : null;
+
+    const vr = await fetch("https://ddragon.leagueoflegends.com/api/versions.json", { cache: "no-store" });
+    const versions = await vr.json();
+
+    if (preferPrefix){
+      const hit = versions.find(v => String(v).startsWith(preferPrefix + ".") || String(v) === preferPrefix);
+      if (hit) return hit;
+    }
+
+    const sample = extractDatasetItemSample(800);
+    if (!sample.length) return versions[0];
+
+    let best = versions[0], bestScore = -1;
+    const tryVersions = versions.slice(0, 20);
+
+    for (const v of tryVersions){
+      try{
+        const ir = await fetch(`https://ddragon.leagueoflegends.com/cdn/${v}/data/en_US/item.json`, { cache: "no-store" });
+        if (!ir.ok) continue;
+        const ij = await ir.json();
+        const data = ij?.data || {};
+        let score = 0;
+        for (const id of sample){
+          if (data[String(id)]) score++;
+        }
+        if (score > bestScore){
+          bestScore = score;
+          best = v;
+        }
+        // early stop if good enough
+        if (score / sample.length >= 0.70 && score >= 80) break;
+      } catch(_){}
+    }
+
+    console.log("DDragon autodetect", { best, bestScore, sampleSize: sample.length, preferPrefix });
+    return best;
+  }
+
   async function loadDdragon(){
     if (!ddragonPatch){
-      const vr = await fetch("https://ddragon.leagueoflegends.com/api/versions.json");
-      const versions = await vr.json();
-      ddragonPatch = versions[0];
+      ddragonPatch = await detectDdragonPatch();
     }
     statusEl.textContent = `Načítám Data Dragon (${ddragonPatch})…`;
 
