@@ -347,13 +347,16 @@
     .qpick .left img{
       width:38px; height:38px; border-radius:12px;
       border:1px solid rgba(255,255,255,.08);
+      object-fit:contain;
       background:#0b0c10;
     }
+    .qpick .left img.placeholder{opacity:.95; filter: grayscale(.15) brightness(1.05);}
     .qpick .left .t1{
-      font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-      max-width: 460px;
+      font-weight:800; font-size:13px; line-height:1.15;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      max-width: min(520px, 44vw);
     }
-    .qpick .left .t2{ color:var(--muted2); font-size:12px; margin-top:2px; }
+    .qpick .left .t2{ color:var(--muted2); font-size:12px; line-height:1.15; margin-top:2px; }
     .qpick .right{
       display:flex; align-items:center; gap:10px;
       flex-shrink:0;
@@ -519,9 +522,25 @@
 (() => {
   "use strict";
 
-  const BUILD_ID = "build-2026-02-24-libdpsspells5";
+  const BUILD_ID = "build-2026-02-24-libdpsspells6";
 
-  // Dev only: kill SW + CacheStorage on localhost to avoid stale index during edits
+  
+
+  const ICON_PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0" stop-color="#233"/>
+      <stop offset="1" stop-color="#112"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="12" width="44" height="40" rx="10" fill="url(#g)" stroke="rgba(255,255,255,0.25)" />
+  <path d="M22 20h18a6 6 0 0 1 6 6v22H28a6 6 0 0 0-6 6V20z" fill="rgba(180,220,255,0.18)"/>
+  <path d="M22 20h18a6 6 0 0 1 6 6v20H28a6 6 0 0 0-6 6V20z" fill="none" stroke="rgba(180,220,255,0.35)" stroke-width="2"/>
+  <path d="M26 28h16M26 34h14M26 40h12" stroke="rgba(230,240,255,0.55)" stroke-width="2" stroke-linecap="round"/>
+</svg>`);
+
+// Dev only: kill SW + CacheStorage on localhost to avoid stale index during edits
   const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   if (IS_LOCAL){
     try{
@@ -1511,8 +1530,9 @@
 
       const img = document.createElement("img");
       img.alt = chosen?.name || "—";
-      img.src = chosen?.icon || "";
-      left.appendChild(img);
+      img.src = chosen?.icon || ICON_PLACEHOLDER;
+      if (!chosen) img.classList.add("placeholder");
+left.appendChild(img);
 
       const txt = document.createElement("div");
       const t1 = document.createElement("div");

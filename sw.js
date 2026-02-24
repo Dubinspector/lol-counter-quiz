@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_VERSION = "2026-02-24-libdpsspells5";
+const CACHE_VERSION = "1318";
 const CACHE_NAME = `lol-counter-${CACHE_VERSION}`;
 
 // Precache jen stabilní soubory. Index řešíme network-first (a i tak si ho uložíme jako fallback).
@@ -75,5 +75,4 @@ self.addEventListener("fetch", (event) => {
 
   // statické: SWR
   event.respondWith(staleWhileRevalidate(event.request));
-
 });
