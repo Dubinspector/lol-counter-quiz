@@ -2,945 +2,1907 @@
 <html lang="cs">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>LoL Counter Item Quiz</title>
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#111111">
   <style>
-    :root { --pad: 14px; }
-    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0b0b0b; color:#f1f1f1; }
-    header { padding: var(--pad); border-bottom: 1px solid #222; display:flex; gap:10px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; }
-    header h1 { font-size: 16px; margin: 0; font-weight: 800; }
-    header .meta { font-size: 12px; color:#bdbdbd; line-height: 1.35; white-space: pre-line; }
-
-    main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
-    .grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
-    @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
-
-    .card { background:#111; border:1px solid #222; border-radius: 16px; padding: 14px; }
-    .row { display:flex; gap: 12px; align-items:center; }
-    .avatar { width: 68px; height: 68px; border-radius: 14px; border:1px solid #222; background:#000; object-fit:cover; }
-    .label { font-size: 12px; color:#bdbdbd; }
-    .title { font-size: 18px; font-weight: 900; margin-top:2px; }
-    .sub { font-size: 12px; color:#bdbdbd; margin-top:2px; line-height: 1.35; }
-
-    .bar { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
-    button.primary {
-      border-radius: 14px; border:1px solid #2a2a2a;
-      background:#151515; color:#fff; padding: 12px 14px;
-      cursor:pointer; touch-action: manipulation;
-      font-weight: 800;
+    :root{
+      --bg:#0b0c0f;
+      --panel:#101216;
+      --panel2:#0f1013;
+      --border:#242833;
+      --text:#e9ecf3;
+      --muted:#a6adbb;
+      --muted2:#7f8796;
+      --btn:#161a22;
+      --btn2:#0f1320;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --r:18px;
+      --gap:18px;
+      --max:1200px;
+      font-synthesis-weight:none;
     }
-    button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
-
-    .result { margin-top: 10px; font-weight: 900; }
-    .ok { color:#59d36b; }
-    .bad { color:#ff5c5c; }
-    .small { font-size: 12px; color:#bdbdbd; line-height: 1.35; }
-    .pill { padding: 6px 10px; border:1px solid #2a2a2a; border-radius: 999px; background:#121212; font-size: 12px; color:#d6d6d6; }
-
-    footer { padding: var(--pad); color:#9a9a9a; font-size: 11px; line-height: 1.35; }
-
-    .itemsRow { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-    .mini { width: 44px; height: 44px; border-radius: 12px; border:1px solid #222; background:#000; object-fit:cover; }
-
-    .analysisBox { margin-top: 10px; padding: 10px; border:1px solid #222; border-radius: 14px; background:#0e0e0e; }
-    .analysisBox .t { font-weight: 900; margin-bottom: 6px; }
-    .analysisBox ul { margin: 8px 0 0 16px; padding: 0; }
-    .analysisBox li { margin: 4px 0; }
-
-    #nextBtn { display:none; width:100%; }
-
-    .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .ctrl { display:flex; flex-direction:column; gap:4px; min-width: 160px; }
-    .ctrl label { font-size: 11px; color:#bdbdbd; }
-    select, input[type="checkbox"] { accent-color: #888; }
-    select {
-      border-radius: 12px;
-      border:1px solid #2a2a2a;
-      background:#0f0f0f;
-      color:#fff;
-      padding: 10px 10px;
-      font-weight: 700;
-      max-width: 100%;
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:radial-gradient(1200px 600px at 20% -10%, rgba(90,120,255,.12), transparent 60%),
+                 radial-gradient(900px 500px at 90% 0%, rgba(255,120,120,.08), transparent 60%),
+                 var(--bg);
+      color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
     }
-    .ctrlRow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .chk {
-      display:flex; gap:8px; align-items:center;
-      padding: 10px 12px;
-      border:1px solid #2a2a2a;
-      border-radius: 12px;
-      background:#0f0f0f;
-      font-size: 12px;
-      color:#e6e6e6;
-      font-weight: 700;
+    .wrap{max-width:var(--max); margin:0 auto; padding:18px;}
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:16px; padding:16px 18px; border:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
     }
-
-    .multiBlock { margin-top: 12px; padding: 12px; border:1px solid #222; border-radius: 14px; background:#0f0f0f; }
-    .multiTitle { font-weight: 900; margin-bottom: 8px; font-size: 12px; color:#eaeaea; display:flex; gap:10px; align-items:center; }
-    .enemyItemChip { display:flex; gap:8px; align-items:center; }
-    .enemyItemChip img { width:32px; height:32px; border-radius:10px; border:1px solid #222; background:#000; object-fit:cover; }
-    .choiceRow { display:flex; gap: 10px; flex-wrap: wrap; }
-    button.choice {
-      min-width: 92px; min-height: 92px;
-      border-radius: 16px;
-      border:1px solid #2a2a2a;
-      background:#0f0f0f;
-      color:#fff;
-      padding: 10px;
+    .title{display:flex; flex-direction:column; gap:2px}
+    .title h1{font-size:18px; margin:0; letter-spacing:.3px}
+    .status{font-size:12px; color:var(--muted)}
+    .controls{
+      display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-end;
+    }
+    .control{display:flex; flex-direction:column; gap:6px; min-width:210px;}
+    .control label{font-size:12px; color:var(--muted)}
+    select,button,input[type="checkbox"]{font:inherit;}
+    select{
+      background:var(--panel);
+      border:1px solid var(--border);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      outline:none;
+      min-height:40px;
+    }
+    .check{
+      display:flex; align-items:center; gap:8px;
+      padding:10px 12px;
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:12px;
+      min-height:40px;
+      color:var(--text);
+      white-space:nowrap;
+    }
+    .pill{
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:var(--panel);
+      min-height:40px;
+      display:flex; align-items:center;
+      gap:8px;
+      white-space:nowrap;
+    }
+    .pill b{font-weight:700}
+    .btn{
+      background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+      border:1px solid var(--border);
+      color:var(--text);
+      padding:10px 14px;
+      border-radius:999px;
       cursor:pointer;
-      touch-action: manipulation;
+      min-height:40px;
     }
-    button.choice:active { transform: scale(0.98); }
-    button.choice:disabled { opacity: 0.55; cursor: not-allowed; }
-    button.choice img { width: 56px; height: 56px; border-radius: 12px; border:1px solid #222; display:block; margin: 0 auto; background:#000; object-fit:cover; }
-    button.choice .nm { font-size: 11px; color:#d8d8d8; margin-top: 8px; line-height: 1.2; text-align:center; }
-    .choiceSelected { outline: 2px solid #ffffff; }
+    .btn:hover{filter:brightness(1.08)}
+    .btn:disabled{opacity:.45; cursor:not-allowed}
+    .grid{
+      margin-top:18px;
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:var(--gap);
+    }
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr}
+      .control{min-width:unset; width:100%}
+      .controls{justify-content:stretch}
+      .pill{width:100%; justify-content:space-between}
+      .btn{width:100%}
+    }
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01));
+      border:1px solid var(--border);
+      border-radius: var(--r);
+      padding:18px;
+      box-shadow: var(--shadow);
+      min-height: 420px;
+    }
+    .card h2{margin:0 0 10px 0; font-size:14px; color:var(--muted); font-weight:600}
+    .champRow{display:flex; align-items:center; gap:14px; margin-top:8px}
+    .champIcon{
+      width:64px; height:64px; border-radius:16px;
+      border:1px solid var(--border);
+      background: var(--panel2);
+      object-fit:cover;
+    }
+    .champMeta{display:flex; flex-direction:column; gap:4px}
+    .champName{font-size:18px; font-weight:750}
+    .sub{font-size:12px; color:var(--muted)}
+    .sectionTitle{
+      margin-top:16px;
+      font-size:12px;
+      color:var(--muted);
+      letter-spacing:.2px;
+    }
+    .items{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .item{
+      width:44px; height:44px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background: var(--panel2);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      position:relative;
+      overflow:hidden;
+    }
+    .item img{width:100%; height:100%; object-fit:cover}
+    .item .badge{
+      position:absolute;
+      right:4px; bottom:4px;
+      font-size:10px;
+      background:rgba(0,0,0,.55);
+      padding:2px 6px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      color:var(--muted);
+    }
+    .quiz{
+      margin-top:12px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .qrow{
+      border:1px solid var(--border);
+      border-radius: 14px;
+      padding:12px;
+      background:rgba(0,0,0,.12);
+    }
+    .qtop{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom:10px;
+    }
+    .qleft{display:flex; align-items:center; gap:10px}
+    .qname{font-size:13px; color:var(--muted)}
+    .opts{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;}
+    @media (max-width: 980px){
+      .opts{grid-template-columns:1fr}
+    }
+    .opt{
+      border:1px solid var(--border);
+      border-radius: 14px;
+      padding:10px;
+      background:var(--btn2);
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-height:54px;
+    }
+    .opt:hover{filter:brightness(1.08)}
+    .opt[data-selected="1"]{outline:2px solid rgba(120,160,255,.55)}
+    .opt[data-correct="1"]{outline:2px solid rgba(46,204,113,.55)}
+    .opt[data-wrong="1"]{outline:2px solid rgba(231,76,60,.55)}
+    .opt .mini{
+      width:34px; height:34px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      flex:0 0 auto;
+      background:var(--panel);
+    }
+    .opt .mini img{width:100%; height:100%; object-fit:cover}
+    .opt .txt{display:flex; flex-direction:column; gap:2px}
+    .opt .txt b{font-size:13px}
+    .opt .txt span{font-size:11px; color:var(--muted2)}
+    .okRow{
+      margin-top:14px;
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:flex-start;
+      flex-wrap:wrap;
+    }
+    .okBtn{
+      border-radius: 14px;
+      padding:12px 16px;
+      background:var(--btn);
+      border:1px solid var(--border);
+      cursor:pointer;
+      min-height:44px;
+      color:var(--text);
+      font-weight:700;
+    }
+    .okBtn:disabled{opacity:.45; cursor:not-allowed}
+    .analysis{
+      margin-top:14px;
+      border-top:1px solid var(--border);
+      padding-top:14px;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+    .footer{
+      margin-top:18px;
+      color:var(--muted2);
+      font-size:11px;
+      padding:10px 2px;
+    }
+    .hint{
+      color:var(--muted);
+      font-size:12px;
+      margin-top:10px;
+    }
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+  
+    /* Modal (library picker) */
+    .modal-backdrop{
+      position:fixed; inset:0; background:rgba(0,0,0,.6);
+      display:none; align-items:center; justify-content:center;
+      z-index:9999;
+      padding:18px;
+    }
+    .modal{
+      width:min(1100px, 96vw);
+      max-height:92vh;
+      overflow:hidden;
+      background:linear-gradient(180deg, rgba(20,22,28,.92), rgba(14,16,20,.92));
+      border:1px solid var(--border);
+      border-radius:22px;
+      box-shadow: var(--shadow);
+      display:flex; flex-direction:column;
+    }
+    .modal .mhead{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 14px 10px 14px; gap:12px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    .modal .mtitle{
+      font-weight:800; letter-spacing:.2px;
+    }
+    .modal .mmeta{
+      color:var(--muted2); font-size:12px;
+    }
+    .modal .mtools{
+      display:flex; gap:10px; align-items:center;
+    }
+    .modal input, .modal select{
+      background:rgba(10,12,18,.9);
+      border:1px solid rgba(255,255,255,.08);
+      color:var(--text);
+      border-radius:12px;
+      padding:10px 12px;
+      outline:none;
+    }
+    .modal .mbody{
+      padding:12px 14px 14px 14px;
+      overflow:auto;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap:12px;
+    }
+    @media (max-width: 980px){
+      .grid{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+    }
+    @media (max-width: 720px){
+      .grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+    .itemcard{
+      background:rgba(11,13,18,.85);
+      border:1px solid rgba(255,255,255,.06);
+      border-radius:18px;
+      padding:12px;
+      display:flex;
+      gap:10px;
+      cursor:pointer;
+      transition: transform .08s ease, border-color .08s ease;
+      user-select:none;
+    }
+    .itemcard:hover{ transform: translateY(-1px); border-color: rgba(130,170,255,.28); }
+    .itemcard img{
+      width:40px; height:40px; border-radius:12px;
+      border:1px solid rgba(255,255,255,.08);
+      background:#0b0c10;
+    }
+    .itemcard .nm{ font-weight:750; font-size:13px; line-height:1.15; }
+    .itemcard .sm{ color:var(--muted2); font-size:12px; margin-top:3px; }
+    .pager{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:10px; padding:10px 14px 14px 14px;
+      border-top:1px solid rgba(255,255,255,.06);
+    }
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(10,12,18,.65);
+      padding:10px 12px; border-radius:999px;
+      cursor:pointer; user-select:none;
+    }
+    .pill:hover{ border-color: rgba(130,170,255,.28); }
+    .qpick{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:12px;
+      background:rgba(10,12,18,.55);
+      border:1px solid rgba(255,255,255,.06);
+      border-radius:18px;
+      padding:12px;
+    }
+    .qpick .left{
+      display:flex; align-items:center; gap:10px;
+      min-width:0;
+    }
+    .qpick .left img{
+      width:38px; height:38px; border-radius:12px;
+      border:1px solid rgba(255,255,255,.08);
+      background:#0b0c10;
+    }
+    .qpick .left .t1{
+      font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      max-width: 460px;
+    }
+    .qpick .left .t2{ color:var(--muted2); font-size:12px; margin-top:2px; }
+    .qpick .right{
+      display:flex; align-items:center; gap:10px;
+      flex-shrink:0;
+    }
+    .qpick[data-rank="best"]{ border-color: rgba(50,220,120,.35); }
+    .qpick[data-rank="bad"]{ border-color: rgba(255,90,90,.35); }
+
   </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>LoL Counter Item Quiz</h1>
-    <div class="meta" id="patchMeta">Načítám data…</div>
-  </div>
-
-  <div class="controls">
-    <div class="ctrl">
-      <label for="laneSel">Lane (ground truth)</label>
-      <select id="laneSel"></select>
-    </div>
-
-    <div class="ctrl">
-      <label for="champSel">Tvůj champion (nezávisle na lince)</label>
-      <select id="champSel"></select>
-    </div>
-
-    <div class="ctrlRow">
-      <div class="chk">
-        <input id="lockChamp" type="checkbox">
-        <label for="lockChamp">Zamknout champa</label>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="title">
+        <h1>LoL Counter Item Quiz</h1>
+        <div id="status" class="status">Načítám data…</div>
       </div>
-      <div class="chk">
-        <input id="lockLane" type="checkbox">
-        <label for="lockLane">Zamknout lane</label>
+
+      <div class="controls">
+        <div class="control">
+          <label for="laneSel">Lane (ground truth)</label>
+          <select id="laneSel">
+            <option value="">Random</option>
+            <option value="TOP">TOP</option>
+            <option value="JUNGLE">JUNGLE</option>
+            <option value="MIDDLE">MIDDLE</option>
+            <option value="BOTTOM">BOTTOM</option>
+            <option value="UTILITY">UTILITY</option>
+          </select>
+        </div>
+
+        <div class="control">
+          <label for="champSel">Tvůj champion (nezávisle na lince)</label>
+          <select id="champSel">
+            <option value="">Načítám…</option>
+          </select>
+        </div>
+
+        <div class="check">
+          <input id="lockChamp" type="checkbox" />
+          <label for="lockChamp">Zamknout champa</label>
+        </div>
+
+        <div class="check">
+          <input id="lockLane" type="checkbox" />
+          <label for="lockLane">Zamknout lane</label>
+        </div>
+
+        <div class="control" style="min-width:170px">
+          <label for="rankSel">Rank bucket</label>
+          <select id="rankSel">
+            <option value="silver">silver</option>
+            <option value="gold">gold</option>
+            <option value="platinum">platinum</option>
+            <option value="emerald">emerald</option>
+            <option value="diamond">diamond</option>
+            <option value="unknown">unknown</option>
+          </select>
+        </div>
+
+        <div class="control" style="min-width:160px">
+          <label for="phaseSel">Fáze hry</label>
+          <select id="phaseSel">
+            <option value="">Random</option>
+            <option value="early">early</option>
+            <option value="mid">mid</option>
+            <option value="late">late</option>
+          </select>
+        </div>
+
+        <div class="pill"><span>Skóre:</span> <b id="score">0</b></div>
+        <div class="pill"><span>Streak:</span> <b id="streak">0</b></div>
+
+        <button id="startBtn" class="btn">Start / Nové kolo</button>
       </div>
     </div>
 
-    <div class="bar">
-      <span class="pill">Skóre: <span id="score">0</span></span>
-      <span class="pill">Streak: <span id="streak">0</span></span>
-      <button class="primary" id="newBtn">Start / Nové kolo</button>
-    </div>
-  </div>
-</header>
+    <div class="grid">
+      <div class="card">
+        <h2>Oponent (tap na ikonu = detaily)</h2>
+        <div class="champRow">
+          <img id="oppIcon" class="champIcon" alt="" />
+          <div class="champMeta">
+            <div id="oppName" class="champName">—</div>
+            <div id="oppSub" class="sub">—</div>
+          </div>
+        </div>
 
-<main>
-  <div class="grid">
-    <div class="card">
-      <div class="label">Oponent (tap na ikonu = skilly)</div>
-      <div class="row" style="margin-top:10px;">
-        <img class="avatar" id="enemyIcon" alt="">
-        <div>
-          <div class="title" id="enemyName">—</div>
-          <div class="sub" id="enemyInfo">—</div>
+        <div class="sectionTitle">Build oponenta (dataset) – tap na item = popis</div>
+        <div id="oppItems" class="items"></div>
+
+        <div class="sectionTitle">Tvůj build v dané fázi (tvé volby) – tap na item = popis</div>
+        <div id="myItems" class="items"></div>
+
+        <div class="hint">
+          Pozn.: Losování je fázové (early/mid/late) a drží se stejné cenové hloubky jako oponentův item. Boty se nikdy nelosují dvakrát.
         </div>
       </div>
 
-      <div class="label" style="margin-top:14px;">Build oponenta (dataset) – tap na item = popis</div>
-      <div class="itemsRow" id="enemyBuildIcons"></div>
-      <div class="sub" id="enemyBuildInfo" style="margin-top:8px;">—</div>
-
-      <div class="label" style="margin-top:14px;">Tvůj build v dané fázi (dataset) – tap na item = popis</div>
-      <div class="itemsRow" id="playerBuildIcons"></div>
-      <div class="sub" id="playerBuildInfo" style="margin-top:8px;">—</div>
-    </div>
-
-    <div class="card">
-      <div class="label">Ty (tap na ikonu = skilly)</div>
-      <div class="row" style="margin-top:10px;">
-        <img class="avatar" id="playerIcon" alt="">
-        <div>
-          <div class="title" id="playerName">—</div>
-          <div class="sub" id="playerInfo">—</div>
+      <div class="card">
+        <h2>Ty (tap na ikonu = detaily)</h2>
+        <div class="champRow">
+          <img id="meIcon" class="champIcon" alt="" />
+          <div class="champMeta">
+            <div id="meName" class="champName">—</div>
+            <div id="meSub" class="sub">—</div>
+          </div>
         </div>
-      </div>
 
-      <div class="label" style="margin-top:14px;">
-        Pro KAŽDÝ enemy item vyber 1 item (1 ze 3). Pak OK.
-        Správnost je empiricky z datasetu: winrate + damage-to-champions delta.
-      </div>
+        <div class="hint">
+          Pro KAŽDÝ enemy item vyber 1 item (z knihovny). Pak OK. Správnost je empiricky z datasetu (winrate v matchupu); když matchup chybí, použije se heuristika (champ archetype + counter).
+        </div>
 
-      <div id="multiChoices"></div>
+        <div id="quiz" class="quiz"></div>
 
-      <div class="bar" style="margin-top:12px;">
-        <button class="primary" id="okBtn" disabled>OK</button>
-      </div>
+        <div class="okRow">
+          <button id="okBtn" class="okBtn" disabled>OK</button>
+          <div id="okHint" class="sub">Vyber item pro všechny řádky (knihovna).</div>
+        </div>
 
-      <div class="result" id="result"></div>
-
-      <div class="analysisBox" id="analysisBox" style="display:none;">
-        <div class="t">Analýza (empirická + skill order)</div>
-        <div class="small" id="reason"></div>
-        <ul class="small" id="bullets"></ul>
-      </div>
-
-      <div style="margin-top:12px;">
-        <button class="primary" id="nextBtn">Další</button>
+        <div id="analysis" class="analysis" style="display:none"></div>
       </div>
     </div>
-  </div>
-</main>
 
-<footer>
-  Fan-made projekt. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon. Dataset: Riot Match-V5 timeline (offline export).
-</footer>
-
-<div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); padding:14px; z-index:9999;">
-  <div style="max-width:720px; margin:0 auto; background:#111; border:1px solid #222; border-radius:16px; padding:14px;">
-    <div style="display:flex; gap:10px; align-items:center; justify-content:space-between;">
-      <div style="font-weight:900" id="modalTitle">—</div>
-      <button id="modalClose" class="primary" style="padding:8px 10px;">Zavřít</button>
+    <div class="footer">
+      Fan-made projekt. Riot Games ho neschvaluje ani nesponzoruje. Assets: Riot Data Dragon. Dataset: Riot Match-V5 timeline (offline export).
     </div>
-    <div class="small" id="modalBody" style="margin-top:10px; line-height:1.4; white-space:pre-wrap;"></div>
   </div>
-</div>
 
 <script>
-(async function () {
-  if ("serviceWorker" in navigator) {
-    try { await navigator.serviceWorker.register("./sw.js"); } catch (e) {}
-  }
 
-  const el = (id) => document.getElementById(id);
-  const makeOpt = (val, txt) => { const o=document.createElement("option"); o.value=val; o.textContent=txt; return o; };
+(() => {
+  "use strict";
 
-  const patchMeta = el("patchMeta");
-  const scoreEl = el("score");
-  const streakEl = el("streak");
-  const newBtn = el("newBtn");
-  const nextBtn = el("nextBtn");
-  const laneSel = el("laneSel");
-  const champSel = el("champSel");
-  const lockChampEl = el("lockChamp");
-  const lockLaneEl = el("lockLane");
-  const okBtn = el("okBtn");
-  const multiChoicesEl = el("multiChoices");
+  const BUILD_ID = "build-2026-02-24-libdpsspells2";
 
-  const modal = el("modal");
-  const modalTitle = el("modalTitle");
-  const modalBody = el("modalBody");
-  const modalClose = el("modalClose");
-  modalClose.onclick = () => modal.style.display = "none";
-  modal.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
-
-  let SCORE = 0;
-  let STREAK = 0;
-  let awaitingNext = false;
-
-  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const shuffle = (arr) => {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
+  // Disable SW caching for dev; helps when switching index versions
+  try{
+    if ('serviceWorker' in navigator){
+      navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
     }
-    return a;
+    if (window.caches && caches.keys){
+      caches.keys().then(keys=>keys.forEach(k=>caches.delete(k))).catch(()=>{});
+    }
+  }catch(_){}
+
+  const PHASE_LEVEL = { early: 6, mid: 11, late: 16 };
+  const DPS_WINDOWS = [3, 6, 10];
+
+  const HARD_BANNED_ITEM_TAGS = new Set(["Trinket","Consumable","GoldPer"]);
+  const HARD_BANNED_ITEM_IDS = new Set([
+    2052, 2031, 2033, 2032, 2010, 2003, 2009, 2015, // pots/biscuits etc
+    3340, 3363, 3364, 2055, // wards/trinkets
+  ]);
+  const HARD_BANNED_ITEM_NAME_RE = /wardstone|world atlas|runic compass|bounty of worlds|spellthief|frostfang|shard of true ice|relic shield|targon|bulwark|shoulderguards|pauldrons|sickle|harrowing|spectral|watchful/i;
+
+  // DOM
+  const statusEl = document.getElementById("status");
+  const laneSel = document.getElementById("laneSel");
+  const champSel = document.getElementById("champSel");
+  const rankSel = document.getElementById("rankSel");
+  const phaseSel = document.getElementById("phaseSel");
+  const lockChamp = document.getElementById("lockChamp");
+  const lockLane = document.getElementById("lockLane");
+
+  const startBtn = document.getElementById("startBtn");
+  const okBtn = document.getElementById("okBtn");
+  const okHint = document.getElementById("okHint");
+
+  const scoreEl = document.getElementById("score");
+  const streakEl = document.getElementById("streak");
+
+  const oppIcon = document.getElementById("oppIcon");
+  const oppName = document.getElementById("oppName");
+  const oppSub = document.getElementById("oppSub");
+  const oppItemsEl = document.getElementById("oppItems");
+
+  const meIcon = document.getElementById("meIcon");
+  const meName = document.getElementById("meName");
+  const meSub = document.getElementById("meSub");
+
+  const quizEl = document.getElementById("quiz");
+  const myItemsEl = document.getElementById("myItems");
+  const analysisEl = document.getElementById("analysis");
+
+  // Library modal DOM
+  const libBackdrop = document.getElementById("libBackdrop");
+  const libTitle = document.getElementById("libTitle");
+  const libMeta = document.getElementById("libMeta");
+  const libSearch = document.getElementById("libSearch");
+  const libTag = document.getElementById("libTag");
+  const libClose = document.getElementById("libClose");
+  const libGrid = document.getElementById("libGrid");
+  const libCount = document.getElementById("libCount");
+  const libPrev = document.getElementById("libPrev");
+  const libNext = document.getElementById("libNext");
+  const libPage = document.getElementById("libPage");
+
+  // Data
+  let logData = null;
+  let scenarioIndex = new Map();
+
+  let ddragonPatch = null;
+  let champMeta = {};   // minimal for display
+  let champData = {};   // stats + spells
+  let champKeyMap = {}; // lower -> canonical
+
+  let itemMeta = {};
+  let allItemIds = [];
+  let itemDepth = new Map();
+
+  // State
+  let score = 0;
+  let streak = 0;
+  let round = null;
+
+  const libState = {
+    open: false,
+    qIndex: -1,
+    pool: [],
+    filtered: [],
+    page: 0,
+    pageSize: 48,
+    tag: "",
+    q: ""
   };
 
-  // --- load dataset (must exist) ---
-  const logData = await fetch("./data/log_builds.json").then(r => {
-    if (!r.ok) throw new Error("Nelze načíst data/log_builds.json (404/500).");
-    return r.json();
-  });
+  // ---------- Utils ----------
+  const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
+  const uniq = (arr) => Array.from(new Set(arr));
+  const fmtPct = (x) => (Number.isFinite(x) ? (x*100).toFixed(2)+"%" : "—");
+  const fmt = (x, d=0) => Number.isFinite(x) ? x.toFixed(d) : "—";
+  const rnd = (arr)=>arr[Math.floor(Math.random()*arr.length)];
 
-  // patch pin
-  const versions = await fetch("https://ddragon.leagueoflegends.com/api/versions.json").then(r => r.json());
-  const datasetPatch = (logData?.patch || logData?.meta?.patch || "").toString().trim();
-  const patch = (datasetPatch && versions.includes(datasetPatch)) ? datasetPatch : versions[0];
-
-  // champs
-  const champFull = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/championFull.json`).then(r => r.json());
-  const champs = Object.values(champFull.data).map(c => ({
-    id: c.id, name: c.name, tags: c.tags || [],
-    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${c.image.full}`
-  }));
-
-  // items
-  const itemJson = await fetch(`https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/item.json`).then(r => r.json());
-  const rawItems = itemJson.data;
-  const items = Object.entries(rawItems).map(([id, it]) => ({
-    id: Number(id),
-    name: it.name,
-    gold: it.gold?.total ?? 0,
-    tags: it.tags ?? [],
-    icon: `https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${it.image.full}`,
-    depth: it.depth ?? 0,
-    requiredChampion: it.requiredChampion ?? null,
-    inStore: it.inStore !== false
-  }));
-  const itemById = new Map(items.map(i => [i.id, i]));
-
-  const HARD_BANNED_ITEM_IDS = new Set([2003,2031,2033,2032,2055,3340,3363,3364,2010,2015,2019,2021,2051,2052,2138,2139,2140]);
-
-  function isRelevantItem(it) {
-    if (!it) return false;
-    if (!it.inStore) return false;
-    if (it.requiredChampion) return false;
-    if (HARD_BANNED_ITEM_IDS.has(it.id)) return false;
-    if ((it.gold ?? 0) <= 0) return false;
-    const tags = new Set(it.tags || []);
-    if (tags.has("Consumable")) return false;
-    if (tags.has("Trinket")) return false;
-    const n = (it.name || "").toLowerCase();
-    if (n.includes("ward") || n.includes("trinket") || n.includes("potion") || n.includes("elixir")) return false;
-    return !!it.icon;
+  function ddChamp(slug){
+    if (!slug) return null;
+    const key = champKeyMap[String(slug).toLowerCase()];
+    return champMeta[key] || champMeta[slug] || null;
   }
+  function ddChampData(slug){
+    if (!slug) return null;
+    const key = champKeyMap[String(slug).toLowerCase()];
+    return champData[key] || champData[slug] || null;
+  }
+  function it(id){ return itemMeta[String(id)] || null; }
 
-  function stripHtmlKeepLinebreaks(html) {
-    const tmp = document.createElement("div");
-    tmp.innerHTML = html || "";
-    tmp.querySelectorAll("br").forEach(br => br.replaceWith("\n"));
-    tmp.querySelectorAll("li").forEach(li => li.prepend("• "));
-    const text = tmp.textContent || "";
-    return text.replace(/\n{3,}/g, "\n\n").trim();
-  }
-  function openItemModal(it) {
-    const raw = rawItems[String(it.id)];
-    const desc = stripHtmlKeepLinebreaks(raw?.description || "");
-    modalTitle.textContent = it.name;
-    modalBody.textContent = desc || "Popis není dostupný.";
-    modal.style.display = "block";
-  }
-  async function fetchChampDetail(champId) {
-    const url = `https://ddragon.leagueoflegends.com/cdn/${patch}/data/en_US/champion/${champId}.json`;
-    return fetch(url).then(r=>r.json()).catch(()=>null);
-  }
-  async function openChampSkillsModal(champ) {
-    const det = await fetchChampDetail(champ.id);
-    const data = det?.data?.[champ.id];
-    if (!data) return;
-    const parts = [];
-    for (const sp of (data.spells||[])) {
-      parts.push(sp.name);
-      parts.push(stripHtmlKeepLinebreaks(sp.tooltip || sp.description || ""));
-      parts.push("");
+  function weightedPick(list, weightKey){
+    let total = 0;
+    for (const x of list) total += Math.max(1, Number(x?.[weightKey] ?? 1));
+    let r = Math.random() * total;
+    for (const x of list){
+      r -= Math.max(1, Number(x?.[weightKey] ?? 1));
+      if (r <= 0) return x;
     }
-    modalTitle.textContent = `${data.name} – skilly`;
-    modalBody.textContent = parts.join("\n");
-    modal.style.display = "block";
+    return list[list.length-1];
   }
 
-  function champFromSlug(slug) {
-    const norm = (slug || "").toLowerCase().replace(/[^a-z0-9]/g,"");
-    const found = champs.find(c => c.id.toLowerCase().replace(/[^a-z0-9]/g,"") === norm);
-    return found || rand(champs);
+  function buildItemNode(id){
+    const m = it(id);
+    const node = document.createElement("div");
+    node.className = "it";
+    const img = document.createElement("img");
+    img.alt = m?.name || String(id);
+    img.src = m?.icon || "";
+    node.appendChild(img);
+    node.title = m?.name || String(id);
+    return node;
   }
 
-  function setChamp(side, champ, extra) {
-    const img = el(`${side}Icon`);
-    img.src = champ.icon;
-    img.alt = champ.name;
-    img.onclick = () => openChampSkillsModal(champ);
-    el(`${side}Name`).textContent = champ.name;
-    el(`${side}Info`).textContent = extra;
-  }
-
-  function renderIcons(containerId, itemList) {
-    const wrap = el(containerId);
-    wrap.innerHTML = "";
-    for (const it of itemList) {
-      const img = document.createElement("img");
-      img.className = "mini";
-      img.alt = it.name;
-      img.title = it.name;
-      img.src = it.icon + `?v=${Date.now()}`;
-      img.onclick = () => openItemModal(it);
-      img.onerror = () => img.remove();
-      wrap.appendChild(img);
+  function renderItems(container, ids){
+    container.innerHTML = "";
+    for (const id of ids){
+      const n = buildItemNode(id);
+      n.addEventListener("click", ()=> {
+        const m = it(id);
+        if (!m) return;
+        alert(`${m.name}\nGold: ${m.totalGold}\nTags: ${(m.tags||[]).join(", ")}`);
+      });
+      container.appendChild(n);
     }
   }
 
-  function itemIdSet(list) {
-    const s = new Set();
-    for (const it of (list || [])) s.add(it.id);
-    return s;
+  function isBoots(id){
+    const tags = it(id)?.tags || [];
+    return tags.includes("Boots");
   }
 
-  function phaseToWindowSec(phase) {
-    const p = String(phase||"").toLowerCase();
-    if (p.includes("early")) return 3;
-    if (p.includes("mid")) return 6;
-    return 10;
+  function itemIsBanned(id){
+    const m = it(id);
+    if (!m) return true;
+    if (HARD_BANNED_ITEM_IDS.has(Number(id))) return true;
+    if ((m.tags||[]).some(t=>HARD_BANNED_ITEM_TAGS.has(t))) return true;
+    if (HARD_BANNED_ITEM_NAME_RE.test(String(m.name||""))) return true;
+    return false;
   }
 
-  // dataset access (Riot-built dataset uses ids, not names)
-  function getRows(slug, laneRaw, rank, phase) {
-    const rows = logData?.champions?.[slug]?.[laneRaw]?.[rank]?.[phase];
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    return rows;
-  }
-  function getTopRow(slug, laneRaw, rank, phase) {
-    const rows = getRows(slug, laneRaw, rank, phase);
-    return rows ? rows[0] : null;
-  }
-  function getRelevantItemsFromRow(row, max = 6) {
-    const out = [];
-    for (const x of (row?.items || [])) {
-      const id = Number(x?.id || 0);
-      if (!id) continue;
-      const it = itemById.get(id);
-      if (!isRelevantItem(it)) continue;
-      out.push(it);
-      if (out.length >= max) break;
+  // Keep one boots: pick the most expensive boots, drop the rest.
+  function filterEnemyItems(items){
+    const cleaned = [];
+    for (const raw of items || []){
+      const id = Number(raw);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      if (!it(id)) continue;
+      if (itemIsBanned(id)) continue;
+      cleaned.push(id);
     }
-    return out;
+    // unique by id first
+    let u = uniq(cleaned);
+
+    // boots class constraint
+    const boots = u.filter(isBoots);
+    if (boots.length > 1){
+      boots.sort((a,b)=>(it(b)?.totalGold||0)-(it(a)?.totalGold||0));
+      const keep = boots[0];
+      u = u.filter(x=>!isBoots(x) || x===keep);
+    }
+    // avoid double "boots" via base+upgrade by always prefer the higher gold one (already done)
+    return u.slice(0,6);
   }
 
-  // pool
-  const POOL_TOP_N_ROWS = 12;
-  const MIN_ITEM_WEIGHT_PCT = 3.0;
-  const MIN_ITEM_ROWS = 2;
-  const MIN_POOL_SIZE = 6;
+  // ---------- Dataset normalize ----------
+  function normalizeRow(r){
+    if (!r || typeof r !== "object") return null;
+    const items = r.items ?? r.itemIds ?? r.build ?? r.enemyItems ?? null;
+    if (!Array.isArray(items)) return null;
 
-  function parsePct(x) {
-    if (x == null) return 0;
-    if (typeof x === "number") return x;
-    const s = String(x).trim().replace("%", "");
-    const v = Number(s);
-    return Number.isFinite(v) ? v : 0;
+    const vsSlug = r.enemySlug ?? r.oppSlug ?? r.opponentSlug ?? r.enemy ?? r.opponent ?? null;
+
+    return {
+      vsSlug: vsSlug ? String(vsSlug) : null,
+      items,
+      games: Number(r.games ?? r.n ?? r.count ?? 1),
+      pickRate: Number(r.pickRate ?? r.pr ?? NaN),
+      winRate: Number(r.winRate ?? r.wr ?? NaN),
+    };
   }
 
-  function getPlayerPoolFromDataset(playerSlug, laneRaw, rank, phase) {
-    const rows = getRows(playerSlug, laneRaw, rank, phase);
-    if (!rows) return null;
+  function buildScenarioIndex(logData){
+    const idx = new Map();
+    const champions = logData?.champions;
+    if (!champions || typeof champions !== "object") return idx;
 
-    const lim = Math.min(POOL_TOP_N_ROWS, rows.length);
-    const weightByItemId = new Map();
-    const rowCountByItemId = new Map();
+    for (const [oppSlug, lanes] of Object.entries(champions)){
+      if (!lanes || typeof lanes !== "object") continue;
+      for (const [lane, ranks] of Object.entries(lanes)){
+        if (!ranks || typeof ranks !== "object") continue;
+        for (const [rank, phases] of Object.entries(ranks)){
+          if (!phases || typeof phases !== "object") continue;
+          for (const [phase, rows] of Object.entries(phases)){
+            if (!Array.isArray(rows)) continue;
 
-    for (let i = 0; i < lim; i++) {
-      const row = rows[i];
-      const rowPick = parsePct(row?.pickRate);
-      const w = rowPick > 0 ? rowPick : (1.0 / (i + 1));
-
-      const itemsList = getRelevantItemsFromRow(row, 6) || [];
-      const seenThisRow = new Set();
-
-      for (const it of itemsList) {
-        weightByItemId.set(it.id, (weightByItemId.get(it.id) || 0) + w);
-        if (!seenThisRow.has(it.id)) {
-          seenThisRow.add(it.id);
-          rowCountByItemId.set(it.id, (rowCountByItemId.get(it.id) || 0) + 1);
+            const key = `${lane}|${rank}|${phase}`;
+            const bucket = idx.get(key) || [];
+            for (const r of rows){
+              const nr = normalizeRow(r);
+              if (!nr) continue;
+              bucket.push({
+                oppSlug,
+                vsSlug: nr.vsSlug,
+                items: nr.items,
+                games: Math.max(1, nr.games || 1),
+                pickRate: nr.pickRate,
+                winRate: nr.winRate
+              });
+            }
+            idx.set(key, bucket);
+          }
         }
       }
     }
+    return idx;
+  }
 
-    const pool = [];
-    for (const [id, w] of weightByItemId.entries()) {
-      const rowsSeen = rowCountByItemId.get(id) || 0;
-      if (rowsSeen < MIN_ITEM_ROWS) continue;
-      if (w < MIN_ITEM_WEIGHT_PCT) continue;
-      const it = itemById.get(id);
-      if (it && isRelevantItem(it)) pool.push(it);
+  function detectKeysFromIndex(){
+    const lanes = new Set();
+    const ranks = new Set();
+    const phases = new Set();
+    for (const k of scenarioIndex.keys()){
+      const [lane, rank, phase] = k.split("|");
+      lanes.add(lane); ranks.add(rank); phases.add(phase);
     }
-
-    pool.sort((a,b) => (weightByItemId.get(b.id)||0) - (weightByItemId.get(a.id)||0));
-    return pool;
+    return {
+      lanes: Array.from(lanes),
+      ranks: Array.from(ranks),
+      phases: Array.from(phases),
+    };
   }
 
-  function tierBucket(it) {
-    const g = it.gold || 0;
-    const d = it.depth || 0;
-    let band = 0;
-    if (g <= 500) band = 0;
-    else if (g <= 900) band = 1;
-    else if (g <= 1400) band = 2;
-    else if (g <= 2000) band = 3;
-    else if (g <= 2600) band = 4;
-    else if (g <= 3200) band = 5;
-    else band = 6;
+  function collectOpponentRows(lane, rank, phase){
+    const exact = scenarioIndex.get(`${lane}|${rank}|${phase}`);
+    if (exact && exact.length) return exact;
 
-    let depthBand = 0;
-    if (d <= 1) depthBand = 0;
-    else if (d === 2) depthBand = 1;
-    else if (d === 3) depthBand = 2;
-    else depthBand = 3;
-    return `${band}::${depthBand}`;
-  }
-
-  function pickTwoDistractorsFromPool(poolItems, correctId) {
-    const correct = itemById.get(correctId);
-    if (!correct) return null;
-
-    const ctier = tierBucket(correct);
-    const cgold = correct.gold || 0;
-    const cdepth = correct.depth || 0;
-
-    let candidates = poolItems.filter(it => it.id !== correctId && tierBucket(it) === ctier);
-
-    if (candidates.length < 4) {
-      candidates = poolItems.filter(it =>
-        it.id !== correctId &&
-        Math.abs((it.gold||0) - cgold) <= 600 &&
-        Math.abs((it.depth||0) - cdepth) <= 1
-      );
+    // fallback 1: same lane+rank any phase
+    const laneRank = [];
+    for (const [k, v] of scenarioIndex.entries()){
+      if (!v.length) continue;
+      const [la, ra] = k.split("|");
+      if (la === lane && ra === rank) laneRank.push(...v);
     }
+    if (laneRank.length) return laneRank;
 
-    if (candidates.length < 2) candidates = poolItems.filter(it => it.id !== correctId);
-
-    candidates = shuffle(candidates);
-    const out = candidates.slice(0,2).map(x=>x.id);
-    return out.length === 2 ? out : null;
-  }
-
-  // empirical stats
-  function getEmpiricalItemStats(playerSlug, laneRaw, rank, phase, enemySlug, itemId) {
-    const node = logData?.matchups?.[playerSlug]?.[laneRaw]?.[rank]?.[phase]?.[enemySlug];
-    if (!node) return null;
-    return node[String(itemId)] || null;
-  }
-
-  function bestEmpiricalAmong(playerSlug, laneRaw, rank, phase, enemySlug, candidateIds) {
-    const MIN_GAMES = 8;
-    let best = null;
-    for (const id of candidateIds) {
-      const s = getEmpiricalItemStats(playerSlug, laneRaw, rank, phase, enemySlug, id);
-      if (!s || (s.games || 0) < MIN_GAMES) continue;
-      const score = (s.winRate || 0) * 1000 + (s.estDmgWindow || 0);
-      if (!best || score > best.score) best = { id, score, s };
+    // fallback 2: same lane any rank/phase
+    const laneAny = [];
+    for (const [k, v] of scenarioIndex.entries()){
+      if (!v.length) continue;
+      const [la] = k.split("|");
+      if (la === lane) laneAny.push(...v);
     }
+    if (laneAny.length) return laneAny;
+
+    // fallback 3: anything
+    const any = [];
+    for (const v of scenarioIndex.values()) if (v.length) any.push(...v);
+    return any;
+  }
+
+  // ---------- DDragon ----------
+  function computeItemDepth(id){
+    const key = String(id);
+    if (itemDepth.has(key)) return itemDepth.get(key);
+    const m = it(id);
+    if (!m){ itemDepth.set(key, 1); return 1; }
+    const from = Array.isArray(m.from) ? m.from : [];
+    if (!from.length){ itemDepth.set(key, 1); return 1; }
+    let best = 1;
+    for (const c of from){
+      best = Math.max(best, 1 + computeItemDepth(c));
+    }
+    best = clamp(best, 1, 6);
+    itemDepth.set(key, best);
     return best;
   }
 
-  // heuristic fallback (only if no empirical)
-  function counterScoreHeuristic(enemyItem, candidateItem) {
-    const en = (enemyItem.name || "").toLowerCase();
-    const cn = (candidateItem.name || "").toLowerCase();
-    let score = 0;
+  function sumItemStats(ids){
+    const s = {
+      ad:0, ap:0, as:0, crit:0,
+      hp:0, armor:0, mr:0,
+      haste:0,
+      lethality:0, armorPenPct:0,
+      magicPenFlat:0, magicPenPct:0,
+    };
+    for (const id of ids){
+      const m = it(id);
+      if (!m || !m.stats) continue;
+      const st = m.stats;
 
-    const enemyArmorish = (enemyItem.tags || []).includes("Armor");
-    const enemyShieldish = en.includes("sterak") || en.includes("seraph") || en.includes("shieldbow");
-    const enemyLifestealish = en.includes("bloodthirst") || en.includes("ravenous") || en.includes("bork") || en.includes("riftmaker");
+      s.ad += Number(st.FlatPhysicalDamageMod ?? 0);
+      s.ap += Number(st.FlatMagicDamageMod ?? 0);
+      s.as += Number(st.PercentAttackSpeedMod ?? 0);
+      s.crit += Number(st.FlatCritChanceMod ?? 0);
 
-    const candGW = cn.includes("mortal reminder") || cn.includes("morell") || cn.includes("thornmail") || cn.includes("chempunk");
-    const candArmorPen = cn.includes("lord dominik") || cn.includes("serylda") || cn.includes("black cleaver") || cn.includes("terminus");
-    const candAntiShield = cn.includes("serpent");
+      s.hp += Number(st.FlatHPPoolMod ?? 0);
+      s.armor += Number(st.FlatArmorMod ?? 0);
+      s.mr += Number(st.FlatSpellBlockMod ?? 0);
 
-    if (enemyLifestealish && candGW) score += 6;
-    if (enemyArmorish && candArmorPen) score += 5;
-    if (enemyShieldish && candAntiShield) score += 4;
+      s.haste += Number(st.FlatCooldownMod ?? 0);
 
-    score += (candidateItem.gold || 0) / 5000;
-    return score;
+      // armor pen / lethality
+      s.lethality += Number(st.FlatArmorPenetrationMod ?? 0);
+      s.armorPenPct += Number(st.PercentArmorPenetrationMod ?? 0);
+
+      // magic pen
+      s.magicPenFlat += Number(st.FlatMagicPenetrationMod ?? 0);
+      s.magicPenPct += Number(st.PercentMagicPenetrationMod ?? 0);
+    }
+    // percent pen are additive in data; clamp
+    s.armorPenPct = clamp(s.armorPenPct, 0, 1);
+    s.magicPenPct = clamp(s.magicPenPct, 0, 1);
+    return s;
   }
 
-  function getAvgSkillRanks(playerSlug, laneRaw, rank, phase) {
-    return logData?.skillOrders?.[playerSlug]?.[laneRaw]?.[rank]?.[phase] || null;
+  function champBaseAtLevel(stats, lvl){
+    const L = Math.max(1, Number(lvl)|0);
+    const k = L - 1;
+    const baseHp = Number(stats.hp ?? 0) + Number(stats.hpperlevel ?? 0)*k;
+    const baseArmor = Number(stats.armor ?? 0) + Number(stats.armorperlevel ?? 0)*k;
+    const baseMr = Number(stats.spellblock ?? 0) + Number(stats.spellblockperlevel ?? 0)*k;
+    const baseAd = Number(stats.attackdamage ?? 0) + Number(stats.attackdamageperlevel ?? 0)*k;
+
+    const baseAs = Number(stats.attackspeed ?? 0) || 0.625;
+    const asPer = Number(stats.attackspeedperlevel ?? 0);
+    const as = baseAs * (1 + (asPer/100)*k);
+
+    const baseCrit = Number(stats.crit ?? 0);
+
+    return { hp: baseHp, armor: baseArmor, mr: baseMr, ad: baseAd, as, crit: baseCrit };
   }
 
-  // build scenarios
-  const allSlugs = Object.keys(logData.champions || {});
-  const scenariosByPhase = new Map();
-  const scenariosByLane = new Map();
-  const scenariosByKey = new Map();
-  let totalScenarios = 0;
+  function buildCombatState(slug, lvl, itemIds){
+    const cd = ddChampData(slug);
+    if (!cd) return null;
 
-  for (const enemySlug of allSlugs) {
-    const lanesObj = logData.champions[enemySlug] || {};
-    for (const laneRaw of Object.keys(lanesObj)) {
-      const laneObj = lanesObj[laneRaw] || {};
-      for (const rank of Object.keys(laneObj)) {
-        const rankObj = laneObj[rank] || {};
-        for (const phase of Object.keys(rankObj)) {
-          const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
-          if (!enemyRow) continue;
-          const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-          if (!enemyItems.length) continue;
+    const base = champBaseAtLevel(cd.stats, lvl);
+    const itStats = sumItemStats(itemIds);
 
-          const sc = { laneRaw, rank, phase, enemySlug };
-          const k = `${laneRaw}::${rank}::${phase}`;
+    const totalAd = base.ad + itStats.ad;
+    const ap = itStats.ap;
 
-          if (!scenariosByPhase.has(phase)) scenariosByPhase.set(phase, []);
-          scenariosByPhase.get(phase).push(sc);
+    const attackSpeed = base.as * (1 + itStats.as);
+    const critChance = clamp((base.crit || 0) + itStats.crit, 0, 1);
 
-          if (!scenariosByLane.has(laneRaw)) scenariosByLane.set(laneRaw, []);
-          scenariosByLane.get(laneRaw).push(sc);
+    const armor = base.armor + itStats.armor;
+    const mr = base.mr + itStats.mr;
+    const hp = base.hp + itStats.hp;
 
-          if (!scenariosByKey.has(k)) scenariosByKey.set(k, []);
-          scenariosByKey.get(k).push(sc);
+    const haste = Math.max(0, itStats.haste || 0);
 
-          totalScenarios++;
+    const spells = buildSpellRotationModels(slug, lvl);
+
+    return {
+      slug, lvl,
+      totalAd,
+      bonusAd: Math.max(0, totalAd - base.ad),
+      ap,
+      attackSpeed,
+      critChance,
+      critMult: 2.0,
+      armorPenPct: clamp(itStats.armorPenPct||0, 0, 0.6),
+      lethality: Math.max(0, itStats.lethality||0),
+      magicPenFlat: Math.max(0, itStats.magicPenFlat||0),
+      magicPenPct: clamp(itStats.magicPenPct||0, 0, 0.6),
+      haste,
+      armor,
+      mr,
+      hp,
+      spells
+    };
+  }
+
+  function applyResist(dmg, resist){
+    const r = Number(resist || 0);
+    if (r >= 0) return dmg * 100 / (100 + r);
+    // negative resist amplification
+    return dmg * (2 - 100/(100 - r));
+  }
+
+  function effectiveArmor(targetArmor, attacker){
+    let a = Number(targetArmor || 0);
+    a = a * (1 - (attacker.armorPenPct || 0));
+    a = a - (attacker.lethality || 0);
+    return a;
+  }
+  function effectiveMR(targetMR, attacker){
+    let m = Number(targetMR || 0);
+    m = m * (1 - (attacker.magicPenPct || 0));
+    m = m - (attacker.magicPenFlat || 0);
+    return m;
+  }
+
+  // ---------- Spell model extraction ----------
+  const champSpellCache = new Map();
+
+  function parseDamageType(tooltip){
+    const t = String(tooltip||"").toLowerCase();
+    if (t.includes("true damage")) return "true";
+    if (t.includes("magic damage")) return "magic";
+    if (t.includes("physical damage")) return "phys";
+    return "auto";
+  }
+
+  function linkToStat(link){
+    const l = String(link||"").toLowerCase();
+    if (l.includes("spelldamage") || l.includes("magic") || l.includes("ap")) return "ap";
+    if (l.includes("bonusattackdamage")) return "bonusAd";
+    if (l.includes("attackdamage")) return "ad";
+    return null;
+  }
+
+  function extractSpellModel(spell){
+    if (!spell || typeof spell !== "object") return null;
+
+    const tooltip = String(spell.tooltip || "");
+    const tLower = tooltip.toLowerCase();
+
+    const hasDamageWord = tLower.includes("damage");
+    const eff = Array.isArray(spell.effect) ? spell.effect : [];
+    const vars = Array.isArray(spell.vars) ? spell.vars : [];
+
+    // build var map: key is like 'a1'
+    const varMap = {};
+    for (const v of vars){
+      if (v && v.key) varMap[String(v.key)] = v;
+    }
+
+    // referenced e indices in tooltip
+    const eIdxs = [];
+    for (const m of tooltip.matchAll(/{{\s*e(\d+)\s*}}/g)){
+      eIdxs.push(Number(m[1]));
+    }
+    const uniqE = uniq(eIdxs.filter(n=>Number.isFinite(n) && n>0));
+
+    // choose best base array among referenced e's
+    let bestArr = null;
+    let bestScore = -1;
+    for (const idx of uniqE){
+      const arr = eff[idx];
+      if (!Array.isArray(arr) || arr.length < 5) continue;
+      const nums = arr.map(x=>Number(x||0));
+      const mean = nums.reduce((a,b)=>a+b,0)/nums.length;
+      if (mean > bestScore){
+        bestScore = mean;
+        bestArr = nums;
+      }
+    }
+
+    // fallback: pick any effect array that looks like damage
+    if (!bestArr){
+      for (let idx=1; idx<eff.length; idx++){
+        const arr = eff[idx];
+        if (!Array.isArray(arr) || arr.length < 5) continue;
+        const nums = arr.map(x=>Number(x||0));
+        const mean = nums.reduce((a,b)=>a+b,0)/nums.length;
+        if (mean > bestScore){
+          bestScore = mean;
+          bestArr = nums;
         }
       }
     }
-  }
 
-  if (totalScenarios === 0) throw new Error("Žádné scénáře v datasetu (po filtrech).");
+    if (!bestArr) bestArr = [0,0,0,0,0];
 
-  const phaseLines = [...scenariosByPhase.entries()].sort((a,b)=>b[1].length-a[1].length).map(([p,a])=>`${p}:${a.length}`);
-  const laneLines = [...scenariosByLane.entries()].sort((a,b)=>b[1].length-a[1].length).map(([l,a])=>`${l}:${a.length}`);
+    // referenced a indices
+    const aIdxs = [];
+    for (const m of tooltip.matchAll(/{{\s*a(\d+)\s*}}/g)){
+      aIdxs.push(Number(m[1]));
+    }
+    const uniqA = uniq(aIdxs.filter(n=>Number.isFinite(n) && n>0));
 
-  patchMeta.textContent =
-    `Patch: ${patch} • Dataset: data/log_builds.json\n` +
-    `Scénáře: ${totalScenarios}\n` +
-    `Fáze: ${phaseLines.join(" | ")}\n` +
-    `Lane: ${laneLines.join(" | ")}`;
+    const scalings = [];
+    for (const ai of uniqA){
+      const v = varMap["a"+ai];
+      if (!v) continue;
+      const stat = linkToStat(v.link);
+      if (!stat) continue;
 
-  // fill selects (ONE time)
-  const scenarioLanes = [...scenariosByLane.keys()].sort((a,b)=>a.localeCompare(b));
-  laneSel.innerHTML = "";
-  laneSel.appendChild(makeOpt("__any__", "Náhodně"));
-  for (const l of scenarioLanes) laneSel.appendChild(makeOpt(l, l));
-
-  champSel.innerHTML = "";
-  champSel.appendChild(makeOpt("__any__", "Náhodně"));
-  const champList = allSlugs
-    .map(slug => ({ slug, name: champFromSlug(slug)?.name || slug }))
-    .sort((a,b)=>a.name.localeCompare(b.name));
-  for (const c of champList) champSel.appendChild(makeOpt(c.slug, c.name));
-
-  // fair phase rotation
-  const phaseList = [...scenariosByPhase.keys()];
-  const resetBag = () => shuffle(phaseList);
-  let phaseBag = resetBag();
-  function pickPhaseFair() { if (phaseBag.length === 0) phaseBag = resetBag(); return phaseBag.pop(); }
-
-  const laneBagByPhase = new Map();
-  function nextScenarioAny(phase, forcedLane) {
-    const list = scenariosByPhase.get(phase) || [];
-    if (!list.length) return null;
-
-    const filtered = forcedLane ? list.filter(sc => sc.laneRaw === forcedLane) : list;
-    if (!filtered.length) return null;
-
-    const lanes = new Map();
-    for (const sc of filtered) {
-      if (!lanes.has(sc.laneRaw)) lanes.set(sc.laneRaw, []);
-      lanes.get(sc.laneRaw).push(sc);
+      // coeff can be array (per rank) or scalar
+      const coeff = Array.isArray(v.coeff) ? v.coeff.map(Number) : [Number(v.coeff||0)];
+      scalings.push({ stat, coeff });
     }
 
-    const laneKeys = [...lanes.keys()];
-    const weights = laneKeys.map(l => 1 / Math.max(1, lanes.get(l).length));
-    const sum = weights.reduce((a,b)=>a+b,0);
-    let r = Math.random() * sum;
-    let laneRaw = laneKeys[laneKeys.length-1];
-    for (let i=0;i<laneKeys.length;i++) { r -= weights[i]; if (r<=0) { laneRaw = laneKeys[i]; break; } }
+    // cooldown per rank
+    const cd = Array.isArray(spell.cooldown) ? spell.cooldown.map(Number) : [Number(spell.cooldown||0)];
+    const cd5 = cd.length >= 5 ? cd.slice(0,5) : (cd.length ? Array(5).fill(cd[0]) : [0,0,0,0,0]);
 
-    if (!laneBagByPhase.has(phase)) laneBagByPhase.set(phase, new Map());
-    const m = laneBagByPhase.get(phase);
-    if (!m.has(laneRaw) || m.get(laneRaw).length === 0) m.set(laneRaw, shuffle(lanes.get(laneRaw)));
-    return m.get(laneRaw).pop();
-  }
-
-  const RECENT_N = 10;
-  const recentEnemies = [];
-  const pushRecent = (arr, v) => { arr.push(v); while (arr.length > RECENT_N) arr.shift(); };
-
-  function lockChoices(locked) {
-    multiChoicesEl.querySelectorAll("button.choice").forEach(b => b.disabled = locked);
-  }
-
-  let state = { why: "", bullets: [] };
-  function renderAnalysis() {
-    el("analysisBox").style.display = "block";
-    el("reason").textContent = state.why;
-    const ul = el("bullets");
-    ul.innerHTML = "";
-    for (const b of state.bullets || []) {
-      const li = document.createElement("li");
-      li.textContent = b;
-      ul.appendChild(li);
+    let dtype = parseDamageType(tooltip);
+    if (dtype === "auto"){
+      const apScale = scalings.some(s=>s.stat==="ap" && (s.coeff[0]||0)>0);
+      const adScale = scalings.some(s=>s.stat==="ad" || s.stat==="bonusAd");
+      dtype = apScale && !adScale ? "magic" : "phys";
     }
+
+    const model = {
+      name: spell.name || "",
+      base: bestArr.slice(0,5),
+      scalings,
+      cooldown: cd5,
+      dtype,
+      enabled: hasDamageWord && bestScore > 0
+    };
+    return model;
   }
 
-  function getLockedLaneOrNull() {
-    if (!lockLaneEl.checked) return null;
-    const v = laneSel.value;
-    if (!v || v === "__any__") return null;
-    return v;
-  }
-  function getLockedPlayerSlugOrNull() {
-    if (!lockChampEl.checked) return null;
-    const v = champSel.value;
-    if (!v || v === "__any__") return null;
-    return v;
-  }
+  function buildSpellRotationModels(slug, lvl){
+    const key = String(slug).toLowerCase();
+    const cd = ddChampData(slug);
+    if (!cd || !Array.isArray(cd.spells)) return [];
 
-  let multiState = {
-    enemyItemsPicked: [],
-    picksByEnemyItemId: new Map(),
-    choicesByEnemyItemId: new Map(),
-    timeWindowSec: 3
-  };
+    const cacheKey = key + "|lvl" + String(lvl);
+    if (champSpellCache.has(cacheKey)) return champSpellCache.get(cacheKey);
 
-  function pickEnemyItemsForQuiz(enemyItems) {
-    const sorted = enemyItems.slice().sort((a,b) => ((b.depth||0)-(a.depth||0)) || ((b.gold||0)-(a.gold||0)));
-    return sorted.slice(0, Math.min(3, sorted.length));
-  }
+    const models = cd.spells.map(extractSpellModel);
 
-  function renderMultiChoices() {
-    multiChoicesEl.innerHTML = "";
-    for (const eIt of multiState.enemyItemsPicked) {
-      const wrap = document.createElement("div");
-      wrap.className = "multiBlock";
+    // QWE indexes 0,1,2 and R index 3
+    const qwe = [0,1,2].map(i=>({i, m:models[i]})).filter(x=>x.m && x.m.enabled);
+    // order by "max base" as proxy
+    qwe.sort((a,b)=>{
+      const am = Math.max(...(a.m.base||[0]));
+      const bm = Math.max(...(b.m.base||[0]));
+      return (bm - am);
+    });
 
-      const title = document.createElement("div");
-      title.className = "multiTitle";
-      title.innerHTML = `
-        <span class="enemyItemChip">
-          <img src="${eIt.icon}?v=${Date.now()}" alt="${eIt.name}">
-          <span>Enemy item: ${eIt.name}</span>
-        </span>
-      `;
-      title.querySelector("img").onclick = () => openItemModal(eIt);
-      wrap.appendChild(title);
+    // default ranks by phase
+    let rAlloc;
+    if (lvl <= 6) rAlloc = { primary: 3, secondary: 2, tertiary: 1, ult: 1 };
+    else if (lvl <= 11) rAlloc = { primary: 5, secondary: 3, tertiary: 3, ult: 2 };
+    else rAlloc = { primary: 5, secondary: 5, tertiary: 5, ult: 3 };
 
-      const row = document.createElement("div");
-      row.className = "choiceRow";
-
-      const ids = multiState.choicesByEnemyItemId.get(eIt.id) || [];
-      for (const id of ids) {
-        const it = itemById.get(id);
-        const btn = document.createElement("button");
-        btn.className = "choice";
-        btn.innerHTML = `<img src="${it.icon}?v=${Date.now()}" alt="${it.name}"><div class="nm">${it.name}</div>`;
-        btn.onclick = () => {
-          multiState.picksByEnemyItemId.set(eIt.id, id);
-          row.querySelectorAll("button.choice").forEach(x => x.classList.remove("choiceSelected"));
-          btn.classList.add("choiceSelected");
-        };
-        btn.ondblclick = () => openItemModal(it);
-        row.appendChild(btn);
-      }
-
-      wrap.appendChild(row);
-      multiChoicesEl.appendChild(wrap);
+    const ranks = [0,0,0,0]; // Q,W,E,R ranks
+    if (qwe.length){
+      ranks[qwe[0].i] = rAlloc.primary;
+      if (qwe[1]) ranks[qwe[1].i] = rAlloc.secondary;
+      if (qwe[2]) ranks[qwe[2].i] = rAlloc.tertiary;
     }
+    // if some spell not damage-enabled, still can have rank but no dmg; keep 0
+    if (lvl >= 6) ranks[3] = clamp(rAlloc.ult, 0, 3);
+
+    const out = [];
+    for (let i=0;i<4;i++){
+      const m = models[i];
+      const rk = ranks[i];
+      if (!m || !m.enabled || rk <= 0) continue;
+      out.push({ slot:i, rank: clamp(rk,1, i===3 ? 3 : 5), ...m });
+    }
+
+    champSpellCache.set(cacheKey, out);
+    return out;
   }
 
-  let cur = {
-    laneRaw: null, rank: null, phase: null, enemySlug: null, playerSlug: null,
-    enemyItems: [], playerItems: [], correctByEnemyItemId: new Map()
-  };
+  function spellHitDamage(spell, attacker, target){
+    const r = spell.rank;
+    const base = Number(spell.base?.[r-1] ?? 0);
+    let raw = base;
 
-  async function newRound() {
-    awaitingNext = false;
-    nextBtn.style.display = "none";
-    nextBtn.disabled = true;
-    newBtn.disabled = false;
+    for (const sc of (spell.scalings||[])){
+      const statVal =
+        sc.stat === "ap" ? attacker.ap :
+        sc.stat === "bonusAd" ? attacker.bonusAd :
+        attacker.totalAd;
 
-    okBtn.disabled = true;
-    el("result").textContent = "";
-    el("result").className = "result";
-    el("analysisBox").style.display = "none";
-    el("reason").textContent = "";
-    el("bullets").innerHTML = "";
-    multiChoicesEl.innerHTML = "";
+      const c = (sc.coeff.length >= r) ? Number(sc.coeff[r-1] ?? sc.coeff[0] ?? 0) : Number(sc.coeff[0] ?? 0);
+      raw += c * statVal;
+    }
 
-    state.why = "";
-    state.bullets = [];
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
 
-    const lockedLane = getLockedLaneOrNull();
-    const lockedPlayerSlug = getLockedPlayerSlugOrNull();
+    if (spell.dtype === "true") return raw;
+    if (spell.dtype === "magic"){
+      const mr = effectiveMR(target.mr, attacker);
+      return applyResist(raw, mr);
+    }
+    const ar = effectiveArmor(target.armor, attacker);
+    return applyResist(raw, ar);
+  }
 
-    for (let tries = 0; tries < 5000; tries++) {
-      const phase = pickPhaseFair();
-      const sc = nextScenarioAny(phase, lockedLane);
-      if (!sc) continue;
+  function spellCastsInWindow(spell, attacker, duration){
+    const r = spell.rank;
+    const baseCd = Number(spell.cooldown?.[r-1] ?? 0);
+    if (!(baseCd > 0)) return 1; // assume at least one cast
+    const haste = Math.max(0, attacker.haste || 0);
+    const cd = baseCd * (100 / (100 + haste)); // ability haste model
+    if (!(cd > 0)) return 1;
+    // cast at t=0 then every cd
+    return 1 + Math.floor((duration - 1e-6) / cd);
+  }
 
-      const { laneRaw, rank, enemySlug } = sc;
-      if (lockedLane && laneRaw !== lockedLane) continue;
-      if (recentEnemies.includes(enemySlug)) continue;
+  function simulateDamage(attacker, target, duration){
+    // autoattacks
+    const critExpectedMult = 1 + (attacker.critChance || 0) * ((attacker.critMult || 2.0) - 1);
+    const aaRaw = attacker.totalAd * critExpectedMult;
 
-      const enemyRow = getTopRow(enemySlug, laneRaw, rank, phase);
-      if (!enemyRow) continue;
-      const enemyItems = getRelevantItemsFromRow(enemyRow, 6);
-      if (!enemyItems.length) continue;
+    const ar = effectiveArmor(target.armor, attacker);
+    const aaHit = applyResist(aaRaw, ar);
 
-      let pickedPlayerSlug = lockedPlayerSlug || null;
-      if (!pickedPlayerSlug) {
-        const k = `${laneRaw}::${rank}::${phase}`;
-        const slugsInKey = scenariosByKey.get(k)?.map(x => x.enemySlug) || [];
-        const candidatePlayers = [...new Set(slugsInKey)].filter(s => s !== enemySlug);
-        if (!candidatePlayers.length) continue;
-        pickedPlayerSlug = rand(candidatePlayers);
+    const numAAs = duration * attacker.attackSpeed; // expected value
+    const aaDmg = aaHit * numAAs;
+
+    // spells
+    let spDmg = 0;
+    for (const sp of (attacker.spells || [])){
+      const casts = spellCastsInWindow(sp, attacker, duration);
+      const hit = spellHitDamage(sp, attacker, target);
+      spDmg += casts * hit;
+    }
+
+    const total = aaDmg + spDmg;
+    return { total, aaDmg, spDmg };
+  }
+
+  // ---------- Library pools ----------
+  function poolForEnemyItem(enemyItemId){
+    const em = it(enemyItemId);
+    if (!em) return [];
+    const targetGold = Number(em.totalGold || 0);
+    const targetDepth = computeItemDepth(enemyItemId);
+    const targetBoots = isBoots(enemyItemId);
+
+    // tolerance: low-cost widen more
+    let tol = Math.max(250, targetGold * 0.12);
+    tol = Math.min(tol, 600);
+
+    let pool = [];
+    for (const id of allItemIds){
+      if (itemIsBanned(id)) continue;
+
+      const m = it(id);
+      if (!m) continue;
+
+      // boots gating
+      if (targetBoots){
+        if (!isBoots(id)) continue;
       } else {
-        if (pickedPlayerSlug === enemySlug) continue;
-        if (!getTopRow(pickedPlayerSlug, laneRaw, rank, phase)) continue;
+        if (isBoots(id)) continue;
       }
 
-      const playerRow = getTopRow(pickedPlayerSlug, laneRaw, rank, phase);
-      if (!playerRow) continue;
-      const playerItems = getRelevantItemsFromRow(playerRow, 6);
-      if (!playerItems.length) continue;
+      const d = computeItemDepth(id);
+      if (d !== targetDepth) continue;
 
-      const owned = itemIdSet(playerItems);
+      const g = Number(m.totalGold || 0);
+      if (!(Math.abs(g - targetGold) <= tol)) continue;
 
-      const poolItemsRaw = getPlayerPoolFromDataset(pickedPlayerSlug, laneRaw, rank, phase);
-      if (!poolItemsRaw) continue;
-      const poolItems = poolItemsRaw.filter(it => !owned.has(it.id));
-      if (poolItems.length < MIN_POOL_SIZE) continue;
+      pool.push(id);
+    }
 
-      const quizEnemyItems = pickEnemyItemsForQuiz(enemyItems);
-      if (!quizEnemyItems.length) continue;
+    // widen if too small
+    if (pool.length < 18){
+      const widened = [];
+      for (const id of allItemIds){
+        if (itemIsBanned(id)) continue;
+        const m = it(id);
+        if (!m) continue;
+        if (targetBoots ? !isBoots(id) : isBoots(id)) continue;
 
-      const choicesByEnemy = new Map();
-      const correctByEnemy = new Map();
+        const d = computeItemDepth(id);
+        if (Math.abs(d - targetDepth) > 1) continue;
 
-      for (const eIt of quizEnemyItems) {
-        const candidateIds = poolItems.map(x => x.id);
-        const bestEmp = bestEmpiricalAmong(pickedPlayerSlug, laneRaw, rank, phase, enemySlug, candidateIds);
+        const g = Number(m.totalGold || 0);
+        if (Math.abs(g - targetGold) > Math.max(600, targetGold*0.18)) continue;
 
-        let correctId = null;
-        if (bestEmp) {
-          correctId = bestEmp.id;
-        } else {
-          let best = null, bestScore = -1e9;
-          for (const it of poolItems) {
-            const s = counterScoreHeuristic(eIt, it);
-            if (s > bestScore) { bestScore = s; best = it; }
-          }
-          correctId = best?.id || null;
-        }
-
-        if (!correctId) { correctByEnemy.clear(); break; }
-
-        const wrongIds = pickTwoDistractorsFromPool(poolItems, correctId);
-        if (!wrongIds) { correctByEnemy.clear(); break; }
-
-        const ids = shuffle([correctId, ...wrongIds]);
-        if (new Set(ids).size !== 3) { correctByEnemy.clear(); break; }
-        if (ids.some(id => owned.has(id))) { correctByEnemy.clear(); break; }
-
-        choicesByEnemy.set(eIt.id, ids);
-        correctByEnemy.set(eIt.id, correctId);
+        widened.push(id);
       }
+      pool = uniq(pool.concat(widened));
+    }
 
-      if (correctByEnemy.size !== quizEnemyItems.length) continue;
+    // stable sort: by gold then name
+    pool.sort((a,b)=>{
+      const ga = Number(it(a)?.totalGold||0), gb = Number(it(b)?.totalGold||0);
+      if (ga !== gb) return ga - gb;
+      return String(it(a)?.name||"").localeCompare(String(it(b)?.name||""));
+    });
 
-      const enemyChamp = champFromSlug(enemySlug);
-      const playerChamp = champFromSlug(pickedPlayerSlug);
+    return pool;
+  }
 
-      setChamp("enemy", enemyChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase} • Okno: ${phaseToWindowSec(phase)}s`);
-      setChamp("player", playerChamp, `Lane: ${laneRaw} • Rank: ${rank} • Fáze: ${phase} • Okno: ${phaseToWindowSec(phase)}s`);
+  // ---------- UI ----------
+  function clearRoundUI(){
+    analysisEl.style.display = "none";
+    analysisEl.textContent = "";
+    quizEl.innerHTML = "";
+    myItemsEl.innerHTML = "";
+    okBtn.disabled = true;
+    okHint.textContent = "Vyber item pro každý řádek.";
+  }
 
-      renderIcons("enemyBuildIcons", enemyItems);
-      renderIcons("playerBuildIcons", playerItems);
+  function chooseLane(){
+    const v = laneSel.value;
+    if (v) return v;
+    const keys = detectKeysFromIndex().lanes;
+    return keys.length ? rnd(keys) : "TOP";
+  }
+  function chooseRank(){
+    const v = rankSel.value;
+    if (v) return v;
+    const keys = detectKeysFromIndex().ranks;
+    return keys.length ? rnd(keys) : "silver";
+  }
+  function choosePhase(){
+    const v = phaseSel.value;
+    if (v) return v;
+    const keys = detectKeysFromIndex().phases;
+    // prefer canonical if present
+    const canonical = ["early","mid","late"].filter(x=>keys.includes(x));
+    return canonical.length ? rnd(canonical) : (keys.length ? rnd(keys) : "mid");
+  }
+  function chooseMeChampion(lane, rank, phase){
+    const locked = lockChamp.checked;
+    if (locked && champSel.value) return champSel.value;
 
-      el("enemyBuildInfo").textContent = `Pick: ${enemyRow?.pickRate ?? "—"}% • Win: ${enemyRow?.winRate ?? "—"}% • (top build)`;
-      el("playerBuildInfo").textContent = `Pick: ${playerRow?.pickRate ?? "—"}% • Win: ${playerRow?.winRate ?? "—"}% • (top build)`;
+    const chosen = champSel.value;
+    if (chosen) return chosen;
 
-      cur = { laneRaw, rank, phase, enemySlug, playerSlug: pickedPlayerSlug, enemyItems, playerItems, correctByEnemyItemId: correctByEnemy };
+    // random from champions present in dataset
+    const slugs = Object.keys(logData?.champions || {});
+    return slugs.length ? rnd(slugs) : "Aatrox";
+  }
 
-      multiState.enemyItemsPicked = quizEnemyItems;
-      multiState.picksByEnemyItemId = new Map();
-      multiState.choicesByEnemyItemId = choicesByEnemy;
-      multiState.timeWindowSec = phaseToWindowSec(phase);
+  function setMeUI(slug, lane, rank, phase){
+    const dd = ddChamp(slug);
+    meIcon.src = dd?.icon || "";
+    meName.textContent = dd?.name || slug;
+    const tags = (dd?.tags||[]).join(", ");
+    meSub.textContent = `Lane(GT): ${lane} • Rank: ${rank} • Phase: ${phase}${tags ? " • Tags: "+tags : ""}`;
+  }
 
-      renderMultiChoices();
-      okBtn.disabled = false;
+  function setOppUI(slug, lane, rank, phase, pickRate, winRate, games, vsSlug){
+    const dd = ddChamp(slug);
+    oppIcon.src = dd?.icon || "";
+    oppName.textContent = dd?.name || slug;
+    const tags = (dd?.tags||[]).join(", ");
+    const vsN = vsSlug ? (ddChamp(vsSlug)?.name || vsSlug) : "—";
+    oppSub.textContent =
+      `Lane(GT): ${lane} • Rank: ${rank} • Phase: ${phase}` +
+      ` • pick ${fmtPct(pickRate)} • wr ${fmtPct(winRate)} • games ${games || "—"}` +
+      ` • vs ${vsN}` +
+      (tags ? ` • Tags: ${tags}` : "");
+  }
 
-      pushRecent(recentEnemies, enemySlug);
+  function renderMyItemsFromAnswers(){
+    if (!round) return;
+    const ids = round.questions.map((q, i)=>Number(round.answers[i])).filter(x=>Number.isFinite(x) && x>0);
+    renderItems(myItemsEl, ids);
+  }
+
+  function updateOKState(){
+    if (!round) return;
+    const total = round.questions.length;
+    let done = 0;
+    for (let i=0;i<total;i++){
+      if (round.answers[i]) done++;
+    }
+    okBtn.disabled = done !== total;
+    okHint.textContent = done === total ? "Hotovo. OK = DPS analýza." : `Vybráno ${done}/${total}.`;
+  }
+
+  function renderQuiz(){
+    quizEl.innerHTML = "";
+    const q = round.questions;
+
+    for (let i=0;i<q.length;i++){
+      const row = q[i];
+      const enemyIt = it(row.enemyItemId);
+
+      const qrow = document.createElement("div");
+      qrow.className = "qrow";
+      qrow.dataset.qindex = String(i);
+
+      const qtop = document.createElement("div");
+      qtop.className = "qtop";
+
+      const qleft = document.createElement("div");
+      qleft.className = "qleft";
+
+      const itNode = buildItemNode(row.enemyItemId);
+      itNode.style.width = "40px";
+      itNode.style.height = "40px";
+      itNode.style.borderRadius = "12px";
+      qleft.appendChild(itNode);
+
+      const qname = document.createElement("div");
+      qname.className = "qname";
+      qname.textContent = `Enemy item: ${enemyIt?.name || row.enemyItemId} • gold ${enemyIt?.totalGold ?? "?"} • depth ${computeItemDepth(row.enemyItemId)} • pool ${row.poolIds.length}`;
+      qleft.appendChild(qname);
+
+      qtop.appendChild(qleft);
+
+      const right = document.createElement("div");
+      right.className = "sub mono";
+      right.textContent = `#${i+1}`;
+      qtop.appendChild(right);
+
+      const pick = document.createElement("div");
+      pick.className = "qpick";
+      pick.dataset.rank = "";
+
+      const chosenId = Number(round.answers[i] || 0);
+      const chosen = chosenId ? it(chosenId) : null;
+
+      const left = document.createElement("div");
+      left.className = "left";
+
+      const img = document.createElement("img");
+      img.alt = chosen?.name || "—";
+      img.src = chosen?.icon || "";
+      left.appendChild(img);
+
+      const txt = document.createElement("div");
+      const t1 = document.createElement("div");
+      t1.className = "t1";
+      t1.textContent = chosen ? chosen.name : "Nevybráno";
+      const t2 = document.createElement("div");
+      t2.className = "t2";
+      t2.textContent = chosen ? `gold ${chosen.totalGold} • ${(chosen.tags||[]).slice(0,4).join(", ")}` : "Otevři knihovnu a vyber item.";
+      txt.appendChild(t1);
+      txt.appendChild(t2);
+      left.appendChild(txt);
+
+      const rightBox = document.createElement("div");
+      rightBox.className = "right";
+
+      const btn = document.createElement("div");
+      btn.className = "pill";
+      btn.textContent = "Knihovna";
+      btn.addEventListener("click", ()=> openLibrary(i));
+      rightBox.appendChild(btn);
+
+      pick.appendChild(left);
+      pick.appendChild(rightBox);
+
+      qrow.appendChild(qtop);
+      qrow.appendChild(pick);
+
+      quizEl.appendChild(qrow);
+    }
+  }
+
+  // ---------- Library modal ----------
+  function rebuildTagOptions(pool){
+    const tags = new Set();
+    for (const id of pool){
+      const m = it(id);
+      if (!m) continue;
+      for (const t of (m.tags||[])) tags.add(t);
+    }
+    const existing = new Set(Array.from(libTag.querySelectorAll("option")).map(o=>o.value));
+    // reset
+    libTag.innerHTML = `<option value="">Všechny tagy</option>`;
+    Array.from(tags).sort((a,b)=>a.localeCompare(b)).forEach(t=>{
+      const opt = document.createElement("option");
+      opt.value = t;
+      opt.textContent = t;
+      libTag.appendChild(opt);
+    });
+  }
+
+  function openLibrary(qIndex){
+    if (!round) return;
+    const row = round.questions[qIndex];
+    if (!row) return;
+
+    libState.open = true;
+    libState.qIndex = qIndex;
+    libState.pool = row.poolIds.slice();
+    libState.page = 0;
+    libState.q = "";
+    libState.tag = "";
+    libSearch.value = "";
+    libTag.value = "";
+
+    const enemy = it(row.enemyItemId);
+    libTitle.textContent = `Knihovna: ${enemy?.name || row.enemyItemId}`;
+    libMeta.textContent = `gold ${enemy?.totalGold ?? "?"} • depth ${computeItemDepth(row.enemyItemId)} • pool ${row.poolIds.length}`;
+
+    rebuildTagOptions(libState.pool);
+
+    libBackdrop.style.display = "flex";
+    libBackdrop.setAttribute("aria-hidden","false");
+
+    renderLibrary();
+    libSearch.focus();
+  }
+
+  function closeLibrary(){
+    libState.open = false;
+    libState.qIndex = -1;
+    libBackdrop.style.display = "none";
+    libBackdrop.setAttribute("aria-hidden","true");
+  }
+
+  function applyLibraryFilter(){
+    const q = libState.q.trim().toLowerCase();
+    const tg = libState.tag;
+
+    let arr = libState.pool.slice();
+    if (tg){
+      arr = arr.filter(id => (it(id)?.tags||[]).includes(tg));
+    }
+    if (q){
+      arr = arr.filter(id => {
+        const m = it(id);
+        if (!m) return false;
+        const hay = (String(m.name||"") + " " + String(m.plaintext||"") + " " + (m.tags||[]).join(" ")).toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    libState.filtered = arr;
+  }
+
+  function renderLibrary(){
+    if (!libState.open) return;
+
+    applyLibraryFilter();
+
+    const total = libState.filtered.length;
+    const pages = Math.max(1, Math.ceil(total / libState.pageSize));
+    libState.page = clamp(libState.page, 0, pages-1);
+
+    const start = libState.page * libState.pageSize;
+    const end = Math.min(total, start + libState.pageSize);
+    const view = libState.filtered.slice(start, end);
+
+    libGrid.innerHTML = "";
+    for (const id of view){
+      const m = it(id);
+      if (!m) continue;
+
+      const card = document.createElement("div");
+      card.className = "itemcard";
+
+      const img = document.createElement("img");
+      img.alt = m.name;
+      img.src = m.icon || "";
+      card.appendChild(img);
+
+      const box = document.createElement("div");
+      const nm = document.createElement("div");
+      nm.className = "nm";
+      nm.textContent = m.name;
+      const sm = document.createElement("div");
+      sm.className = "sm";
+      sm.textContent = `gold ${m.totalGold} • depth ${computeItemDepth(id)} • ${(m.tags||[]).slice(0,3).join(", ")}`;
+      box.appendChild(nm);
+      box.appendChild(sm);
+      card.appendChild(box);
+
+      card.addEventListener("click", ()=>{
+        pickFromLibrary(id);
+      });
+
+      libGrid.appendChild(card);
+    }
+
+    libCount.textContent = `${total} itemů`;
+    libPage.textContent = `strana ${libState.page+1}/${pages}`;
+    libPrev.style.opacity = libState.page > 0 ? "1" : ".35";
+    libNext.style.opacity = libState.page < pages-1 ? "1" : ".35";
+  }
+
+  function pickFromLibrary(itemId){
+    const qi = libState.qIndex;
+    if (!round || qi < 0) return;
+
+    // optional: prevent duplicate completed items across your build
+    const chosen = Object.values(round.answers).map(Number).filter(x=>Number.isFinite(x)&&x>0);
+    const d = computeItemDepth(itemId);
+    if (d >= 2 && chosen.includes(Number(itemId))){
+      alert("Tenhle item už máš vybraný v jiném řádku. Vyber jiný.");
       return;
     }
 
-    el("result").textContent = "Chyba: nelze vygenerovat validní kolo (málo dat / lock).";
-    el("result").className = "result bad";
+    round.answers[qi] = Number(itemId);
+    closeLibrary();
+    renderQuiz();
+    renderMyItemsFromAnswers();
+    updateOKState();
   }
 
-  okBtn.addEventListener("click", () => {
-    if (awaitingNext) return;
+  libClose.addEventListener("click", closeLibrary);
+  libBackdrop.addEventListener("click", (e)=>{ if (e.target === libBackdrop) closeLibrary(); });
+  document.addEventListener("keydown", (e)=>{ if (e.key === "Escape" && libState.open) closeLibrary(); });
 
-    for (const eIt of multiState.enemyItemsPicked) {
-      if (!multiState.picksByEnemyItemId.has(eIt.id)) {
-        el("result").textContent = "Vyber item pro každý enemy item.";
-        el("result").className = "result bad";
-        return;
+  libSearch.addEventListener("input", ()=>{
+    libState.q = libSearch.value || "";
+    libState.page = 0;
+    renderLibrary();
+  });
+  libTag.addEventListener("change", ()=>{
+    libState.tag = libTag.value || "";
+    libState.page = 0;
+    renderLibrary();
+  });
+  libPrev.addEventListener("click", ()=>{
+    libState.page = Math.max(0, libState.page - 1);
+    renderLibrary();
+  });
+  libNext.addEventListener("click", ()=>{
+    libState.page = libState.page + 1;
+    renderLibrary();
+  });
+
+  // ---------- Scoring / Analysis ----------
+  function analyzeDps(){
+    if (!round) return;
+
+    const lvl = PHASE_LEVEL[round.phase] || 11;
+
+    const myItems = round.questions.map((q,i)=>Number(round.answers[i])).filter(x=>Number.isFinite(x)&&x>0);
+    const oppItems = round.oppItems.slice();
+
+    const attacker = buildCombatState(round.meSlug, lvl, myItems);
+    const target = buildCombatState(round.oppSlug, lvl, oppItems);
+
+    if (!attacker || !target){
+      throw new Error("Chybí data champů pro DPS.");
+    }
+
+    const overall = DPS_WINDOWS.map(T=>{
+      const sim = simulateDamage(attacker, target, T);
+      return { T, dps: sim.total / T, total: sim.total, aa: sim.aaDmg, sp: sim.spDmg };
+    });
+
+    // Per-row ranking by 6s DPS (fixed other selections)
+    const Tmain = 6;
+    const perRow = [];
+
+    for (let i=0;i<round.questions.length;i++){
+      const q = round.questions[i];
+      const chosenId = Number(round.answers[i]);
+      const pool = q.poolIds;
+
+      let best = { id: null, dps: -1 };
+      let chosen = { id: chosenId, dps: -1 };
+      const scored = [];
+
+      for (const cand of pool){
+        const build = myItems.slice();
+        build[i] = Number(cand);
+
+        const a2 = buildCombatState(round.meSlug, lvl, build);
+        const sim = simulateDamage(a2, target, Tmain);
+        const dps = sim.total / Tmain;
+
+        scored.push({ id: cand, dps });
+        if (dps > best.dps){
+          best = { id: cand, dps };
+        }
+        if (cand === chosenId){
+          chosen = { id: cand, dps };
+        }
+      }
+
+      scored.sort((a,b)=>b.dps-a.dps);
+      const rank = scored.findIndex(x=>x.id===chosenId) + 1;
+      const pct = best.dps > 0 ? (chosen.dps / best.dps) : 0;
+
+      perRow.push({
+        i,
+        enemyItemId: q.enemyItemId,
+        chosenId,
+        bestId: best.id,
+        chosenDps: chosen.dps,
+        bestDps: best.dps,
+        rank,
+        totalPool: scored.length,
+        pct
+      });
+
+      // annotate UI row
+      const qrow = quizEl.querySelector(`.qrow[data-qindex="${i}"]`);
+      const pick = qrow ? qrow.querySelector(".qpick") : null;
+      if (pick){
+        pick.dataset.rank = (rank === 1) ? "best" : (pct >= 0.93 ? "" : "bad");
+        const rightBox = pick.querySelector(".right");
+        if (rightBox){
+          let badge = rightBox.querySelector(".mmeta");
+          if (!badge){
+            badge = document.createElement("div");
+            badge.className = "mmeta";
+            rightBox.insertBefore(badge, rightBox.firstChild);
+          }
+          badge.textContent = `rank ${rank}/${scored.length} • ${(pct*100).toFixed(1)}%`;
+        }
       }
     }
 
-    awaitingNext = true;
-    lockChoices(true);
-    okBtn.disabled = true;
-    newBtn.disabled = true;
-
-    const bullets = [];
-    const timeSec = multiState.timeWindowSec;
-
-    let correctCount = 0;
-    let total = multiState.enemyItemsPicked.length;
-
-    bullets.push(`Okno: ${timeSec}s. Lane=${cur.laneRaw}, phase=${cur.phase}, rank=${cur.rank}.`);
-    bullets.push(`Ty: ${cur.playerSlug} vs Enemy: ${cur.enemySlug}.`);
-
-    const sr = getAvgSkillRanks(cur.playerSlug, cur.laneRaw, cur.rank, cur.phase);
-    if (sr) bullets.push(`Skill ranks (avg, n=${sr.n}): Q=${sr.avg.q}, W=${sr.avg.w}, E=${sr.avg.e}, R=${sr.avg.r} (lvl≈${sr.lvl}).`);
-
-    for (const eIt of multiState.enemyItemsPicked) {
-      const pickedId = multiState.picksByEnemyItemId.get(eIt.id);
-      const correctId = cur.correctByEnemyItemId.get(eIt.id);
-
-      const pickedItem = itemById.get(pickedId);
-      const correctItem = itemById.get(correctId);
-
-      const pickedStats = getEmpiricalItemStats(cur.playerSlug, cur.laneRaw, cur.rank, cur.phase, cur.enemySlug, pickedId);
-      const correctStats = getEmpiricalItemStats(cur.playerSlug, cur.laneRaw, cur.rank, cur.phase, cur.enemySlug, correctId);
-
-      const pickedLine = pickedStats ? `WR ${pickedStats.winRate}% (n=${pickedStats.games}), dmg≈${pickedStats.estDmgWindow}` : `bez dat`;
-      const correctLine = correctStats ? `WR ${correctStats.winRate}% (n=${correctStats.games}), dmg≈${correctStats.estDmgWindow}` : `bez dat (fallback)`;
-
-      const ok = pickedId === correctId;
-      if (ok) correctCount++;
-
-      bullets.push(`Enemy item: ${eIt.name} → vybráno: ${pickedItem?.name || pickedId} (${pickedLine}) • správně: ${correctItem?.name || correctId} (${correctLine})`);
-    }
-
-    if (correctCount === total) {
-      SCORE += 1; STREAK += 1;
-      el("result").textContent = `SPRÁVNĚ • ${correctCount}/${total}`;
-      el("result").className = "result ok";
+    // Scoring: pass if average pct >= 0.95 at 6s
+    const avgPct = perRow.reduce((a,b)=>a+(b.pct||0),0) / Math.max(1, perRow.length);
+    const pass = avgPct >= 0.95;
+    if (pass){
+      streak += 1;
+      score += 1;
     } else {
-      STREAK = 0;
-      el("result").textContent = `ŠPATNĚ • ${correctCount}/${total}`;
-      el("result").className = "result bad";
+      streak = 0;
+    }
+    scoreEl.textContent = String(score);
+    streakEl.textContent = String(streak);
+
+    // Build analysis text
+    const meN = ddChamp(round.meSlug)?.name || round.meSlug;
+    const oppN = ddChamp(round.oppSlug)?.name || round.oppSlug;
+
+    const lines = [];
+    lines.push(`${meN} vs ${oppN}`);
+    lines.push(`Lane(GT)=${round.lane} Rank=${round.rank} Phase=${round.phase} (lvl ${lvl})`);
+    lines.push("");
+    lines.push("DPS okna (ty -> oponent):");
+    for (const o of overall){
+      lines.push(`  ${o.T}s: DPS ${fmt(o.dps,1)} • dmg ${fmt(o.total,0)} (AA ${fmt(o.aa,0)} + spells ${fmt(o.sp,0)})`);
+    }
+    lines.push("");
+    lines.push("Řádky (ranking podle 6s DPS při fixních ostatních volbách):");
+    for (const r of perRow){
+      const en = it(r.enemyItemId)?.name || String(r.enemyItemId);
+      const ch = it(r.chosenId)?.name || String(r.chosenId);
+      const be = it(r.bestId)?.name || String(r.bestId);
+      lines.push(`#${r.i+1} enemy: ${en}`);
+      lines.push(`  tvoje volba: ${ch}`);
+      lines.push(`  best:       ${be}`);
+      lines.push(`  6s DPS: ${fmt(r.chosenDps,1)} vs ${fmt(r.bestDps,1)}  (${(r.pct*100).toFixed(1)}%)  rank ${r.rank}/${r.totalPool}`);
+      lines.push("");
     }
 
-    scoreEl.textContent = String(SCORE);
-    streakEl.textContent = String(STREAK);
+    analysisEl.style.display = "block";
+    analysisEl.textContent =
+      `Výsledek: ${(avgPct*100).toFixed(1)}% průměr vůči best (6s)\n` +
+      `${pass ? "PASS" : "FAIL"}\n\n` +
+      lines.join("\n") +
+      `\n\nPozn.: Spelly jsou genericky odhadnuté z Data Dragon tooltip/effect. MVP = single-target, bez cast time, bez passiv itemů.`;
 
-    state.why =
-      `Empirická evaluace z datasetu: (tvůj champ + lane + rank + phase + enemy champ) → winrate + damage delta (přepočet na ${timeSec}s).`;
+    okBtn.disabled = true;
+    okHint.textContent = "Kolo vyhodnoceno. Nové kolo.";
+  }
 
-    state.bullets = bullets;
-    renderAnalysis();
+  // ---------- Round ----------
+  function buildRound(){
+    clearRoundUI();
 
-    nextBtn.style.display = "inline-block";
-    nextBtn.disabled = false;
+    const lane = chooseLane();
+    const rank = chooseRank();
+    const phase = choosePhase();
+    const meSlug = chooseMeChampion(lane, rank, phase);
+
+    const candidates = collectOpponentRows(lane, rank, phase);
+    if (!candidates.length){
+      throw new Error("Dataset je prázdný po normalizaci.");
+    }
+
+    const oppRow = weightedPick(candidates, "games");
+
+    const oppSlug = oppRow.oppSlug;
+    const oppItems = filterEnemyItems(oppRow.items || []);
+    if (!oppItems.length) throw new Error("Oponent nemá itemy po filtru.");
+
+    setMeUI(meSlug, lane, rank, phase);
+    setOppUI(oppSlug, lane, rank, phase, oppRow.pickRate, oppRow.winRate, oppRow.games, oppRow.vsSlug);
+
+    renderItems(oppItemsEl, oppItems);
+
+    const questions = [];
+    for (const enemyItemId of oppItems){
+      const poolIds = poolForEnemyItem(enemyItemId);
+      if (poolIds.length < 6) continue;
+      questions.push({ enemyItemId, poolIds });
+    }
+    if (!questions.length) throw new Error("Nelze sestavit otázky (0).");
+
+    round = { meSlug, lane, rank, phase, oppSlug, oppItems, questions, answers: {}, revealed: false };
+
+    renderQuiz();
+    updateOKState();
+    renderMyItemsFromAnswers();
+  }
+
+  startBtn.addEventListener("click", () => {
+    try{
+      buildRound();
+      statusEl.textContent = `Kolo připraveno. (${BUILD_ID})`;
+    } catch (e){
+      console.error(e);
+      statusEl.textContent = `Chyba: ${e?.message || e}`;
+    }
   });
 
-  function renderAnalysis() {
-    el("analysisBox").style.display = "block";
-    el("reason").textContent = state.why;
-    const ul = el("bullets");
-    ul.innerHTML = "";
-    for (const b of state.bullets || []) {
-      const li = document.createElement("li");
-      li.textContent = b;
-      ul.appendChild(li);
+  okBtn.addEventListener("click", () => {
+    try{
+      if (!round || round.revealed) return;
+      round.revealed = true;
+      analyzeDps();
+    } catch (e){
+      console.error(e);
+      statusEl.textContent = `Chyba: ${e?.message || e}`;
+    }
+  });
+
+  async function loadDataset(){
+    statusEl.textContent = "Načítám dataset…";
+    const r = await fetch("./data/log_builds.json");
+    if (!r.ok) throw new Error(`log_builds.json failed: HTTP ${r.status}`);
+    logData = await r.json();
+    scenarioIndex = buildScenarioIndex(logData);
+    if (!scenarioIndex.size) throw new Error("Nepodařilo se znormalizovat log_builds.json (0 buckets).");
+  }
+
+  async function loadDdragon(){
+    if (!ddragonPatch){
+      const vr = await fetch("https://ddragon.leagueoflegends.com/api/versions.json");
+      const versions = await vr.json();
+      ddragonPatch = versions[0];
+    }
+    statusEl.textContent = `Načítám Data Dragon (${ddragonPatch})…`;
+
+    const cr = await fetch(`https://ddragon.leagueoflegends.com/cdn/${ddragonPatch}/data/en_US/championFull.json`);
+    if (!cr.ok) throw new Error(`championFull.json failed: HTTP ${cr.status}`);
+    const cj = await cr.json();
+
+    champMeta = {};
+    champData = {};
+    champKeyMap = {};
+
+    for (const [ddKey, c] of Object.entries(cj?.data || {})){
+      champMeta[ddKey] = {
+        slug: ddKey,
+        name: c.name,
+        title: c.title,
+        tags: Array.isArray(c.tags) ? c.tags : [],
+        icon: `https://ddragon.leagueoflegends.com/cdn/${ddragonPatch}/img/champion/${c.image.full}`
+      };
+      champData[ddKey] = {
+        stats: c.stats || {},
+        spells: Array.isArray(c.spells) ? c.spells : []
+      };
+      champKeyMap[ddKey.toLowerCase()] = ddKey;
+    }
+
+    const ir = await fetch(`https://ddragon.leagueoflegends.com/cdn/${ddragonPatch}/data/en_US/item.json`);
+    if (!ir.ok) throw new Error(`item.json failed: HTTP ${ir.status}`);
+    const ij = await ir.json();
+
+    itemMeta = {};
+    allItemIds = [];
+    itemDepth = new Map();
+
+    for (const [id, it0] of Object.entries(ij?.data || {})){
+      const nid = Number(id);
+      if (!Number.isFinite(nid) || nid <= 0) continue;
+
+      const purchasable = it0?.gold?.purchasable !== false;
+      if (!purchasable) continue;
+
+      const inStore = it0?.inStore !== false;
+      if (!inStore) continue;
+
+      const maps = it0?.maps || {};
+      if (maps && maps["11"] === false) continue;
+      if (maps && maps["11"] !== true) continue;
+
+      const tags = Array.isArray(it0.tags) ? it0.tags : [];
+      if (tags.some(t => HARD_BANNED_ITEM_TAGS.has(t))) continue;
+      if (HARD_BANNED_ITEM_IDS.has(nid)) continue;
+      const nm = String(it0?.name || "");
+      if (HARD_BANNED_ITEM_NAME_RE.test(nm)) continue;
+
+      const totalGold = Number(it0?.gold?.total ?? NaN);
+
+      itemMeta[id] = {
+        id: nid,
+        name: it0.name,
+        totalGold,
+        tags,
+        plaintext: it0.plaintext || "",
+        desc: it0.description || "",
+        stats: it0.stats || {},
+        from: Array.isArray(it0.from) ? it0.from.map(Number).filter(Number.isFinite) : [],
+        into: Array.isArray(it0.into) ? it0.into.map(Number).filter(Number.isFinite) : [],
+        icon: `https://ddragon.leagueoflegends.com/cdn/${ddragonPatch}/img/item/${it0.image.full}`
+      };
+
+      allItemIds.push(nid);
+    }
+
+    statusEl.textContent = `Ready (${BUILD_ID}) • Champs ${Object.keys(champMeta).length} • Items ${allItemIds.length}`;
+  }
+
+  function populateChampionSelect(){
+    const slugs = Object.keys(logData?.champions || {}).sort((a,b)=>a.localeCompare(b));
+    champSel.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "Random";
+    champSel.appendChild(opt0);
+
+    for (const slug of slugs){
+      const dd = ddChamp(slug);
+      const opt = document.createElement("option");
+      opt.value = slug;
+      opt.textContent = dd?.name ? `${dd.name} (${slug})` : slug;
+      champSel.appendChild(opt);
     }
   }
 
-  newBtn.addEventListener("click", () => { if (!awaitingNext) newRound(); });
-  nextBtn.addEventListener("click", () => newRound());
+  function populateLaneRankPhase(){
+    // Keep existing options if present; else populate from index keys.
+    const keys = detectKeysFromIndex();
+    if (!laneSel.querySelector("option[value='']")){
+      const o = document.createElement("option"); o.value=""; o.textContent="Random";
+      laneSel.insertBefore(o, laneSel.firstChild);
+    }
+    if (!rankSel.querySelector("option[value='']")){
+      const o = document.createElement("option"); o.value=""; o.textContent="Random";
+      rankSel.insertBefore(o, rankSel.firstChild);
+    }
+    if (!phaseSel.querySelector("option[value='']")){
+      const o = document.createElement("option"); o.value=""; o.textContent="Random";
+      phaseSel.insertBefore(o, phaseSel.firstChild);
+    }
 
-  laneSel.addEventListener("change", () => { if (!awaitingNext) newRound(); });
-  champSel.addEventListener("change", () => { if (!awaitingNext) newRound(); });
-  lockChampEl.addEventListener("change", () => { if (!awaitingNext) newRound(); });
-  lockLaneEl.addEventListener("change", () => { if (!awaitingNext) newRound(); });
+    // lanes
+    const existingL = new Set(Array.from(laneSel.querySelectorAll("option")).map(o=>o.value));
+    keys.lanes.sort((a,b)=>a.localeCompare(b)).forEach(v=>{
+      if (existingL.has(v)) return;
+      const o = document.createElement("option"); o.value=v; o.textContent=v;
+      laneSel.appendChild(o);
+    });
+    // ranks
+    const existingR = new Set(Array.from(rankSel.querySelectorAll("option")).map(o=>o.value));
+    keys.ranks.sort((a,b)=>a.localeCompare(b)).forEach(v=>{
+      if (existingR.has(v)) return;
+      const o = document.createElement("option"); o.value=v; o.textContent=v;
+      rankSel.appendChild(o);
+    });
+    // phases
+    const existingP = new Set(Array.from(phaseSel.querySelectorAll("option")).map(o=>o.value));
+    keys.phases.sort((a,b)=>a.localeCompare(b)).forEach(v=>{
+      if (existingP.has(v)) return;
+      const o = document.createElement("option"); o.value=v; o.textContent=v;
+      phaseSel.appendChild(o);
+    });
+  }
 
-  await newRound();
+  async function init(){
+    try{
+      await loadDataset();
+      await loadDdragon();
+      populateChampionSelect();
+      populateLaneRankPhase();
+
+      scoreEl.textContent = String(score);
+      streakEl.textContent = String(streak);
+
+      okBtn.disabled = true;
+      okHint.textContent = "Vyber item pro každý řádek.";
+
+    } catch (e){
+      console.error(e);
+      statusEl.textContent = `Init error: ${e?.message || e}`;
+    }
+  }
+
+  init();
 })();
+
 </script>
+
+  <!-- Item Library Modal -->
+  <div class="modal-backdrop" id="libBackdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="libTitle">
+      <div class="mhead">
+        <div>
+          <div class="mtitle" id="libTitle">Knihovna itemů</div>
+          <div class="mmeta" id="libMeta">—</div>
+        </div>
+        <div class="mtools">
+          <input id="libSearch" type="text" placeholder="Hledat (název / tag)..." />
+          <select id="libTag">
+            <option value="">Všechny tagy</option>
+          </select>
+          <div class="pill" id="libClose">Zavřít</div>
+        </div>
+      </div>
+      <div class="mbody">
+        <div class="grid" id="libGrid"></div>
+      </div>
+      <div class="pager">
+        <div class="mmeta" id="libCount">—</div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <div class="pill" id="libPrev">←</div>
+          <div class="mmeta" id="libPage">—</div>
+          <div class="pill" id="libNext">→</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
