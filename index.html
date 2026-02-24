@@ -519,7 +519,7 @@
 (() => {
   "use strict";
 
-  const BUILD_ID = "build-2026-02-24-libdpsspells3";
+  const BUILD_ID = "build-2026-02-24-libdpsspells5";
 
   // Dev only: kill SW + CacheStorage on localhost to avoid stale index during edits
   const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
@@ -536,7 +536,7 @@
 
   // One-time SW reset on non-local origins to break stale cached index.html from previous builds.
   // After the reset, this build runs without SW. You can re-enable SW later once the UI stabilizes.
-  const SW_RESET_KEY = "sw-reset-libdpsspells3";
+  const SW_RESET_KEY = "sw-reset-libdpsspells4";
   if (!IS_LOCAL){
     try{
       const already = window.localStorage && localStorage.getItem(SW_RESET_KEY);
@@ -566,7 +566,7 @@
     2052, 2031, 2033, 2032, 2010, 2003, 2009, 2015, // pots/biscuits etc
     3340, 3363, 3364, 2055, // wards/trinkets
   ]);
-  const HARD_BANNED_ITEM_NAME_RE = /wardstone|world atlas|runic compass|bounty of worlds|spellthief|frostfang|shard of true ice|relic shield|targon|bulwark|shoulderguards|pauldrons|sickle|harrowing|spectral|watchful/i;
+  const HARD_BANNED_ITEM_NAME_RE = /wardstone|world atlas|runic compass|bounty of worlds|spellthief|frostfang|shard of true ice|relic shield|targon|bulwark|shoulderguards|pauldrons|sickle|harrowing|spectral|watchful|talisman|potion|elixir|oracle lens|farsight|warding totem|control ward|stealth ward|support item/i;
 
   // DOM
   const statusEl = document.getElementById("status");
@@ -642,6 +642,18 @@
   // ---------- Utils ----------
   const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
   const uniq = (arr) => Array.from(new Set(arr));
+
+  const uniqBy = (arr, keyFn) => {
+    const out = [];
+    const seen = new Set();
+    for (const x of arr){
+      const k = String(keyFn(x));
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(x);
+    }
+    return out;
+  };
   const fmtPct = (x) => (Number.isFinite(x) ? (x*100).toFixed(2)+"%" : "—");
   const fmt = (x, d=0) => Number.isFinite(x) ? x.toFixed(d) : "—";
   const rnd = (arr)=>arr[Math.floor(Math.random()*arr.length)];
@@ -923,6 +935,7 @@
 
     return {
       slug, lvl,
+      baseAd: base.ad,
       totalAd,
       bonusAd: Math.max(0, totalAd - base.ad),
       ap,
@@ -937,7 +950,8 @@
       armor,
       mr,
       hp,
-      spells
+      spells,
+      procs: buildItemProcs(itemIds)
     };
   }
 
@@ -961,7 +975,71 @@
     return m;
   }
 
-  // ---------- Spell model extraction ----------
+  
+  // ---------- Item proc parsing (MVP) ----------
+  function stripHtml(s){
+    return String(s||"").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function parseSpellblade(desc){
+    // Use DDragon text to stay patch-accurate-ish. We only support simple "X% base AD (+Y% AP)" patterns.
+    if (!/spellblade/i.test(desc)) return null;
+    const d = desc.toLowerCase();
+    const dtype = d.includes("magic damage") ? "magic" : (d.includes("true damage") ? "true" : "phys");
+
+    let baseAdPct = 0;
+    let apRatio = 0;
+    let icd = 1.5;
+
+    const mBase = desc.match(/(\d+(?:\.\d+)?)%\s*(?:of\s*)?base\s*ad/i) || desc.match(/(\d+(?:\.\d+)?)%\s*base\s*ad/i);
+    if (mBase) baseAdPct = Number(mBase[1]) / 100;
+
+    const mAp = desc.match(/\(\s*(\d+(?:\.\d+)?)%\s*ap\s*\)/i);
+    if (mAp) apRatio = Number(mAp[1]) / 100;
+
+    const mCd = desc.match(/cooldown:\s*(\d+(?:\.\d+)?)/i);
+    if (mCd) icd = Number(mCd[1]);
+
+    if (!(baseAdPct > 0 || apRatio > 0)) return null;
+    return { dtype, baseAdPct, apRatio, icd };
+  }
+
+  function parseOnHitFlat(desc){
+    // Very limited: "deals N bonus (magic/physical/true) damage on-hit"
+    if (!/on-?hit/i.test(desc)) return null;
+    const dtype = /true damage/i.test(desc) ? "true" : (/physical damage/i.test(desc) ? "phys" : "magic");
+    const m = desc.match(/deals?\s+(\d+(?:\.\d+)?)\s+(?:bonus\s+)?(?:magic|physical|true)?\s*damage\s+on-?hit/i);
+    if (!m) return null;
+    const amount = Number(m[1]);
+    if (!(amount > 0)) return null;
+    return { dtype, amount };
+  }
+
+  function buildItemProcs(itemIds){
+    const procs = { spellblade: null, onHitFlat: [] };
+    for (const id of itemIds || []){
+      const m = it(id);
+      if (!m) continue;
+
+      // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
+      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
+        if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
+      }
+      const desc = stripHtml(m.description || "");
+      if (!desc) continue;
+
+      if (!procs.spellblade){
+        const sb = parseSpellblade(desc);
+        if (sb) procs.spellblade = sb;
+      }
+      const oh = parseOnHitFlat(desc);
+      if (oh) procs.onHitFlat.push(oh);
+    }
+    return procs;
+  }
+
+// ---------- Spell model extraction ----------
   const champSpellCache = new Map();
 
   function parseDamageType(tooltip){
@@ -1069,7 +1147,7 @@
       scalings,
       cooldown: cd5,
       dtype,
-      enabled: hasDamageWord && bestScore > 0
+      enabled: bestScore > 0
     };
     return model;
   }
@@ -1158,30 +1236,73 @@
   }
 
   function simulateDamage(attacker, target, duration){
-    // autoattacks
+    // autoattacks (expected value)
     const critExpectedMult = 1 + (attacker.critChance || 0) * ((attacker.critMult || 2.0) - 1);
     const aaRaw = attacker.totalAd * critExpectedMult;
 
     const ar = effectiveArmor(target.armor, attacker);
     const aaHit = applyResist(aaRaw, ar);
 
-    const numAAs = duration * attacker.attackSpeed; // expected value
+    const numAAs = duration * attacker.attackSpeed; // expected count
     const aaDmg = aaHit * numAAs;
 
-    // spells
+    // spells (very simplified rotation: cast at t=0 and on cooldown; no cast-time/resource gating)
     let spDmg = 0;
+    let totalCasts = 0;
     for (const sp of (attacker.spells || [])){
       const casts = spellCastsInWindow(sp, attacker, duration);
       const hit = spellHitDamage(sp, attacker, target);
       spDmg += casts * hit;
+      totalCasts += casts;
     }
 
-    const total = aaDmg + spDmg;
-    return { total, aaDmg, spDmg };
+    // item procs (MVP): Spellblade + flat on-hit only
+    let itemDmg = 0;
+
+    // Spellblade: after an ability, next AA deals bonus damage. Respect internal cooldown if present.
+    const sb = attacker.procs?.spellblade;
+    if (sb && (sb.baseAdPct > 0 || sb.apRatio > 0)){
+      const aaInt = Math.max(0, Math.floor(numAAs));
+      const maxByIcd = 1 + Math.floor((duration - 1e-6) / Math.max(0.5, sb.icd || 1.5));
+      const procs = Math.min(totalCasts, aaInt, maxByIcd);
+
+      if (procs > 0){
+        let raw = 0;
+        raw += (sb.baseAdPct || 0) * (attacker.baseAd || attacker.totalAd || 0);
+        raw += (sb.apRatio || 0) * (attacker.ap || 0);
+
+        if (raw > 0){
+          let hit = raw;
+          if (sb.dtype === "magic"){
+            hit = applyResist(raw, effectiveMR(target.mr, attacker));
+          } else if (sb.dtype === "phys"){
+            hit = applyResist(raw, effectiveArmor(target.armor, attacker));
+          }
+          itemDmg += procs * hit;
+        }
+      }
+    }
+
+    // flat on-hit: add per-AA (expected)
+    const ohs = attacker.procs?.onHitFlat || [];
+    for (const oh of ohs){
+      const raw = Number(oh.amount || 0);
+      if (!(raw > 0)) continue;
+      let hit = raw;
+      if (oh.dtype === "magic"){
+        hit = applyResist(raw, effectiveMR(target.mr, attacker));
+      } else if (oh.dtype === "phys"){
+        hit = applyResist(raw, effectiveArmor(target.armor, attacker));
+      }
+      itemDmg += hit * numAAs;
+    }
+
+    const total = aaDmg + spDmg + itemDmg;
+    return { total, aaDmg, spDmg, itemDmg };
   }
 
   // ---------- Library pools ----------
-  function poolForEnemyItem(enemyItemId){
+  function poolForEnemyItem(enemyItemId, lane){
     const em = it(enemyItemId);
     if (!em) return [];
     const targetGold = Number(em.totalGold || 0);
@@ -1198,6 +1319,12 @@
 
       const m = it(id);
       if (!m) continue;
+
+      // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
+      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
+        if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
+      }
 
       // boots gating
       if (targetBoots){
@@ -1222,6 +1349,11 @@
         if (itemIsBanned(id)) continue;
         const m = it(id);
         if (!m) continue;
+
+        const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+        if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
+          if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
+        }
         if (targetBoots ? !isBoots(id) : isBoots(id)) continue;
 
         const d = computeItemDepth(id);
@@ -1240,6 +1372,12 @@
       const ga = Number(it(a)?.totalGold||0), gb = Number(it(b)?.totalGold||0);
       if (ga !== gb) return ga - gb;
       return String(it(a)?.name||"").localeCompare(String(it(b)?.name||""));
+    });
+
+    // de-dup by display identity (some DDragon ids share identical name/gold)
+    pool = uniqBy(pool, (id) => {
+      const m = it(id);
+      return `${m?.name||id}|${Number(m?.totalGold||0)}`;
     });
 
     return pool;
@@ -1412,6 +1550,12 @@
     for (const id of pool){
       const m = it(id);
       if (!m) continue;
+
+      // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
+      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
+        if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
+      }
       for (const t of (m.tags||[])) tags.add(t);
     }
     const existing = new Set(Array.from(libTag.querySelectorAll("option")).map(o=>o.value));
@@ -1495,6 +1639,12 @@
     for (const id of view){
       const m = it(id);
       if (!m) continue;
+
+      // lane-locked restrictions: jungle-only items should not appear outside JUNGLE unless the target itself is jungle-only
+      const targetIsJungleOnly = (em.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(em.name||""));
+      if (!targetIsJungleOnly && lane && lane !== "JUNGLE"){
+        if ((m.tags||[]).includes("Jungle") || /scorchclaw|gustwalker|mosstomper/i.test(String(m.name||""))) continue;
+      }
 
       const card = document.createElement("div");
       card.className = "itemcard";
@@ -1588,7 +1738,7 @@
 
     const overall = DPS_WINDOWS.map(T=>{
       const sim = simulateDamage(attacker, target, T);
-      return { T, dps: sim.total / T, total: sim.total, aa: sim.aaDmg, sp: sim.spDmg };
+      return { T, dps: sim.total / T, total: sim.total, aa: sim.aaDmg, sp: sim.spDmg, item: sim.itemDmg };
     });
 
     // Per-row ranking by 6s DPS (fixed other selections)
@@ -1677,7 +1827,7 @@
     lines.push("");
     lines.push("DPS okna (ty -> oponent):");
     for (const o of overall){
-      lines.push(`  ${o.T}s: DPS ${fmt(o.dps,1)} • dmg ${fmt(o.total,0)} (AA ${fmt(o.aa,0)} + spells ${fmt(o.sp,0)})`);
+      lines.push(`  ${o.T}s: DPS ${fmt(o.dps,1)} • dmg ${fmt(o.total,0)} (AA ${fmt(o.aa,0)} + spells ${fmt(o.sp,0)} + item ${fmt(o.item,0)})`);
     }
     lines.push("");
     lines.push("Řádky (ranking podle 6s DPS při fixních ostatních volbách):");
@@ -1730,7 +1880,7 @@
 
     const questions = [];
     for (const enemyItemId of oppItems){
-      const poolIds = poolForEnemyItem(enemyItemId);
+      const poolIds = poolForEnemyItem(enemyItemId, lane);
       if (poolIds.length < 6) continue;
       questions.push({ enemyItemId, poolIds });
     }
@@ -1854,18 +2004,25 @@
   }
 
   function populateChampionSelect(){
-    const slugs = Object.keys(logData?.champions || {}).sort((a,b)=>a.localeCompare(b));
+    // Always populate from Data Dragon to avoid dataset key inconsistencies (rank/region leaking into keys).
+    const ddKeys = Object.keys(champMeta || {});
+    const entries = ddKeys.map(k => ({
+      key: k,
+      slug: String(k).toLowerCase(),
+      name: champMeta[k]?.name || k
+    }));
+    entries.sort((a,b)=>a.name.localeCompare(b.name));
+
     champSel.innerHTML = "";
     const opt0 = document.createElement("option");
     opt0.value = "";
     opt0.textContent = "Random";
     champSel.appendChild(opt0);
 
-    for (const slug of slugs){
-      const dd = ddChamp(slug);
+    for (const e of entries){
       const opt = document.createElement("option");
-      opt.value = slug;
-      opt.textContent = dd?.name ? `${dd.name} (${slug})` : slug;
+      opt.value = e.slug;
+      opt.textContent = `${e.name} (${e.slug})`;
       champSel.appendChild(opt);
     }
   }
